@@ -51,7 +51,7 @@ GridFunction::GridFunction(Mesh *m, std::istream &input)
    getline(input, buff, ' '); // 'Ordering:'
    int ordering;
    input >> ordering;
-
+ 
    NURBSExtension *NURBSext = NULL;
    if (m->NURBSext) {
       input.getline(buff, bufflen, ' '); // 'NURBSext:'
