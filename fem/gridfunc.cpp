@@ -43,30 +43,34 @@ GridFunction::GridFunction(Mesh *m, std::istream &input)
    }
    getline(input, buff, ' '); // 'FiniteElementCollection:'
    input >> std::ws;
+
    getline(input, buff);
    filter_dos(buff);
    fec = FiniteElementCollection::New(buff.c_str());
    getline(input, buff, ' '); // 'VDim:'
+
    input >> vdim;
    getline(input, buff, ' '); // 'Ordering:'
    int ordering;
    input >> ordering;
  
    NURBSExtension *NURBSext = NULL;
-   if (m->NURBSext) {
+   if (m->NURBSext) 
+   {
       input.getline(buff, bufflen, ' '); // 'NURBSext:'
       int size;
       input >> size;
-      if (size <= 0) {
-         cout<<"Iso param extension"<<endl;
-         NURBSext = m->NURBSext;
-      }
-      else {
+    //  if (size <= 0)
+    //  {
+    //     NURBSext = m->NURBSext;
+     // }
+     // else
+      if (size > 0)
+      {
          Array<int> Orders(size);
          Orders.Load(input);
-         cout<<"Create new extension: ";Orders.Print();
          NURBSext = new NURBSExtension(m->NURBSext, Orders);
-     }
+      }
    }
 
    input.getline(buff, bufflen); // read the empty line
