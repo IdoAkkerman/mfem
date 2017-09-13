@@ -3090,7 +3090,7 @@ void Mesh::DegreeElevate(int t)
       mfem_error("Mesh::DegreeElevate");
    }
    nurbs_fec->UpdateOrder(nurbs_fec->GetOrder() + t);
-
+   sequence++;
    UpdateNURBS();
 }
 
