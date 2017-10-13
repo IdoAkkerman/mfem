@@ -140,6 +140,29 @@ public:
                        const IntegrationPoint &ip);
 };
 
+/// class for compounding coefficients
+class CompoundCoefficient : public Coefficient
+{
+protected:
+   double weight[2];
+   Coefficient *coeff[2];
+public:
+
+   CompoundCoefficient(double w0,   Coefficient *coeff0,
+                       double w1=1, Coefficient *coeff1 = NULL)
+   {
+      weight[0] = w0;
+      weight[1] = w1;
+
+      coeff[0] = coeff0;
+      coeff[1] = coeff1;
+   }
+
+   /// Evaluate coefficient
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip);
+};
+
 class GridFunction;
 
 /// Coefficient defined by a GridFunction. This coefficient is mesh dependent.
