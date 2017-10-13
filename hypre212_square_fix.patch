@@ -1,0 +1,95 @@
+From 82c0901618ea7a714ffc2fc59e00254a1eca1b4a Mon Sep 17 00:00:00 2001
+From: Ido Akkerman <I.Akkerman@tudelft.nl>
+Date: Wed, 11 Oct 2017 11:21:40 +0200
+Subject: [PATCH] Adding options in param list of BoomerAMGBuildCoarseOperator
+ function to force routine to not assume square matrices
+
+---
+ src/parcsr_ls/_hypre_parcsr_ls.h |  1 +
+ src/parcsr_ls/par_rap.c          | 39 +++++++++++++++++++++++++++++++--------
+ 2 files changed, 32 insertions(+), 8 deletions(-)
+
+diff --git a/src/parcsr_ls/_hypre_parcsr_ls.h b/src/parcsr_ls/_hypre_parcsr_ls.h
+index d2ddf36..1ab3f31 100644
+--- a/src/parcsr_ls/_hypre_parcsr_ls.h
++++ b/src/parcsr_ls/_hypre_parcsr_ls.h
+@@ -1446,6 +1446,7 @@ HYPRE_Int hypre_BoomerAMGBuildNonGalerkinCoarseOperator( hypre_ParCSRMatrix **RA
+ hypre_CSRMatrix *hypre_ExchangeRAPData ( hypre_CSRMatrix *RAP_int , hypre_ParCSRCommPkg *comm_pkg_RT );
+ HYPRE_Int hypre_BoomerAMGBuildCoarseOperator ( hypre_ParCSRMatrix *RT , hypre_ParCSRMatrix *A , hypre_ParCSRMatrix *P , hypre_ParCSRMatrix **RAP_ptr );
+ HYPRE_Int hypre_BoomerAMGBuildCoarseOperatorKT ( hypre_ParCSRMatrix *RT , hypre_ParCSRMatrix *A , hypre_ParCSRMatrix *P , HYPRE_Int keepTranspose, hypre_ParCSRMatrix **RAP_ptr );
++HYPRE_Int hypre_BoomerAMGBuildCoarseOperatorKTS ( hypre_ParCSRMatrix *RT , hypre_ParCSRMatrix *A , hypre_ParCSRMatrix *P , HYPRE_Int keepTranspose, HYPRE_Int square, hypre_ParCSRMatrix **RAP_ptr );
+ 
+ /* par_rap_communication.c */
+ HYPRE_Int hypre_GetCommPkgRTFromCommPkgA ( hypre_ParCSRMatrix *RT , hypre_ParCSRMatrix *A , HYPRE_Int *fine_to_coarse_offd );
+diff --git a/src/parcsr_ls/par_rap.c b/src/parcsr_ls/par_rap.c
+index adbe585..f4db59c 100644
+--- a/src/parcsr_ls/par_rap.c
++++ b/src/parcsr_ls/par_rap.c
+@@ -204,16 +204,42 @@ hypre_BoomerAMGBuildCoarseOperator( hypre_ParCSRMatrix  *RT,
+                                     hypre_ParCSRMatrix  *P,
+                                     hypre_ParCSRMatrix **RAP_ptr )
+ {
+-   hypre_BoomerAMGBuildCoarseOperatorKT( RT, A, P, 0, RAP_ptr);
++
++   HYPRE_Int              square = 1;
++   HYPRE_Int n_coarse    = hypre_ParCSRMatrixGlobalNumCols(P);
++   HYPRE_Int n_coarse_RT = hypre_ParCSRMatrixGlobalNumCols(RT);
++   if (n_coarse != n_coarse_RT)
++      square = 0;
++
++   hypre_BoomerAMGBuildCoarseOperatorKTS( RT, A, P, 0, square, RAP_ptr);
+    return hypre_error_flag;
+ }
+ 
+ HYPRE_Int
+ hypre_BoomerAMGBuildCoarseOperatorKT( hypre_ParCSRMatrix  *RT,
+-                                    hypre_ParCSRMatrix  *A,
+-                                    hypre_ParCSRMatrix  *P,
+-   				    HYPRE_Int keepTranspose,
+-                                    hypre_ParCSRMatrix **RAP_ptr )
++                                      hypre_ParCSRMatrix  *A,
++                                      hypre_ParCSRMatrix  *P,
++                                      HYPRE_Int keepTranspose,
++                                      hypre_ParCSRMatrix **RAP_ptr )
++
++{
++   HYPRE_Int              square = 1;
++   HYPRE_Int n_coarse    = hypre_ParCSRMatrixGlobalNumCols(P);
++   HYPRE_Int n_coarse_RT = hypre_ParCSRMatrixGlobalNumCols(RT);
++   if (n_coarse != n_coarse_RT)
++      square = 0;
++
++   hypre_BoomerAMGBuildCoarseOperatorKTS( RT, A, P, keepTranspose, square, RAP_ptr);
++   return hypre_error_flag;
++}
++
++HYPRE_Int
++hypre_BoomerAMGBuildCoarseOperatorKTS( hypre_ParCSRMatrix  *RT,
++                                       hypre_ParCSRMatrix  *A,
++                                       hypre_ParCSRMatrix  *P,
++                                       HYPRE_Int keepTranspose,
++                                       HYPRE_Int square,
++                                       hypre_ParCSRMatrix **RAP_ptr )
+ 
+ {
+ #ifdef HYPRE_PROFILE
+@@ -349,7 +375,6 @@ hypre_BoomerAMGBuildCoarseOperatorKT( hypre_ParCSRMatrix  *RT,
+    HYPRE_Int             *temp;
+ 
+    HYPRE_Int              n_coarse, n_coarse_RT;
+-   HYPRE_Int              square = 1;
+    HYPRE_Int              num_cols_offd_Pext = 0;
+    
+    HYPRE_Int              ic, i, j, k;
+@@ -419,8 +444,6 @@ hypre_BoomerAMGBuildCoarseOperatorKT( hypre_ParCSRMatrix  *RT,
+    num_nz_cols_A = num_cols_diag_A + num_cols_offd_A;
+ 
+    n_coarse_RT = hypre_ParCSRMatrixGlobalNumCols(RT);
+-   if (n_coarse != n_coarse_RT)
+-      square = 0;
+ 
+    /*-----------------------------------------------------------------------
+     *  Generate Ps_ext, i.e. portion of P that is stored on neighbor procs
+-- 
+2.7.4
+
