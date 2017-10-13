@@ -147,6 +147,30 @@ void parseVector(char * str, Vector & var)
    }
 }
 
+void OptionsParser::ReadFormFile(std::istream &input)
+{
+   argc = 1;
+   argv = new char*[256];
+   argv[0] = strdup("From file");
+
+   int bufsize = 256;
+   char buffer[256];
+   input.getline(buffer,bufsize);
+   while (input.good())
+   {
+      argv[argc] = strtok(buffer, " ");
+      while (argv[argc])
+      {
+         argv[argc] = strdup(argv[argc]);
+         argc++;
+         if (argc == 256) { mfem_error("OptionsParser::ReadFormFile maximum options is set to 256"); }
+         argv[argc] = strtok(NULL, " ");
+
+      }
+      input.getline(buffer,bufsize);
+   }
+}
+
 void OptionsParser::Parse()
 {
    option_check.SetSize(options.Size());
