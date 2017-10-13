@@ -46,6 +46,18 @@ double FunctionCoefficient::Eval(ElementTransformation & T,
    }
 }
 
+double CompoundCoefficient::Eval(ElementTransformation & T,
+                                 const IntegrationPoint & ip)
+{
+   if (!coeff[1])
+   {
+      return weight[0]*coeff[0]->Eval(T,ip);
+   }
+
+   return weight[0]*coeff[0]->Eval(T,ip) + weight[1]*coeff[1]->Eval(T,ip);
+}
+
+
 double GridFunctionCoefficient::Eval (ElementTransformation &T,
                                       const IntegrationPoint &ip)
 {
