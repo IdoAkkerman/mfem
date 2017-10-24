@@ -156,7 +156,7 @@ class NURBSExtension
 #endif
    friend class NURBSPatchMap;
 
-public:
+protected:
    Array<int> Order;
    int NumOfKnotVectors;
    // global entity counts
@@ -271,9 +271,6 @@ public:
    NURBSExtension(NURBSExtension *parent, const Array<int> &Order);
    /// Construct a NURBSExtension by merging a partitioned NURBS mesh
    NURBSExtension(Mesh *mesh_array[], int num_pieces);
-
-   /// Construct a NURBSExtension by merging a partitioned NURBS mesh
-   NURBSExtension(NURBSExtension *parent, Array<int>  &bnds0, Array<int>  &bnds1);
 
    void MergeGridFunctions(GridFunction *gf_array[], int num_pieces,
                            GridFunction &merged);
@@ -527,9 +524,6 @@ inline int NURBSPatchMap::Or2D(const int n1, const int n2,
       case 7: return n1 + (N2 - 1 - n2)*N1;
    }
 #ifdef MFEM_DEBUG
-
-
-   std::cout << Or<<std::endl;
    mfem_error("NURBSPatchMap::Or2D");
 #endif
    return -1;

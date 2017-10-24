@@ -25,4 +25,8 @@ add_mfem_miniapp(shaper
   MAIN shaper.cpp
   LIBRARIES mfem)
 
+add_mfem_miniapp(periodic
+  MAIN periodic.cpp
+  LIBRARIES mfem)
+
 # Add tests?

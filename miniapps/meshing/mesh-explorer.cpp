@@ -273,6 +273,47 @@ int main (int argc, char *argv[])
          print_char = 1;
       }
 
+      if (mk == 'a')
+      {
+         double factor;
+         cout << "scaling a la Ido " << endl;
+
+
+         double sx = 6.28318530718;
+         double sy = 2.09439510239;
+         double sz = 2.0;
+
+         GridFunction *nodes = mesh->GetNodes();
+         if (nodes == NULL)
+         {
+            for (int i = 0; i < mesh->GetNV(); i++)
+            {
+               double *v = mesh->GetVertex(i);
+               v[0] = sx*0.5*(v[0] + 1.0);
+               v[1] = sy*0.5*(v[1] + 1.0);
+               if (dim == 3)
+               {
+                  v[2] = sz*0.5*(v[2] + 1.0);
+               }
+            }
+         }
+         else
+         {
+            for (int i = 0; i < nodes->Size()/3; i++)
+            {
+               double *v = &(*nodes)[3*i];
+               v[0] = sx*0.5*(v[0] + 1.0);
+               v[1] = sy*0.5*(v[1] + 1.0);
+               if (dim == 3)
+               {
+                  v[2] = sz*0.5*(v[2] + 1.0);
+               }
+            }
+
+         }
+
+         print_char = 1;
+      }
       if (mk == 't')
       {
          mesh->Transform(transformation);

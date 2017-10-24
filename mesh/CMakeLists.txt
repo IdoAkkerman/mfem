@@ -23,6 +23,7 @@ set(SRCS
   tetrahedron.cpp
   triangle.cpp
   vertex.cpp
+  mesh_connect.cpp
   )
 
 set(HDRS

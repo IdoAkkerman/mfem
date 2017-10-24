@@ -770,10 +770,6 @@ void Mesh::InitTables()
 {
    el_to_edge =
       el_to_face = el_to_el = bel_to_edge = face_edge = edge_vertex = NULL;
-
-
-   bdrOrient.SetSize(0);
-   bdrEdgeOrient.SetSize(0,0);
 }
 
 void Mesh::SetEmpty()
@@ -2281,7 +2277,7 @@ void Mesh::Make1D(int n, double sx)
    bdr_attributes.Append(1); bdr_attributes.Append(2);
 }
 
-void Mesh::Copy(const Mesh &mesh, bool copy_nodes)
+Mesh::Mesh(const Mesh &mesh, bool copy_nodes)
 {
    Dim = mesh.Dim;
    spaceDim = mesh.spaceDim;
@@ -2310,7 +2306,7 @@ void Mesh::Copy(const Mesh &mesh, bool copy_nodes)
    // Copy the vertices
    //MFEM_ASSERT(mesh.vertices.Size() == NumOfVertices, "internal MFEM error!");
    //mesh.vertices.Copy(vertices);
-   if (mesh.vertices.Size() == NumOfVertices) { mesh.vertices.Copy(vertices); }
+   if (mesh.vertices.Size() == NumOfVertices) mesh.vertices.Copy(vertices);
 
 
    // Duplicate the boundary
@@ -2358,15 +2354,9 @@ void Mesh::Copy(const Mesh &mesh, bool copy_nodes)
    mesh.bdr_attributes.Copy(bdr_attributes);
 
    // No support for NURBS meshes, yet. Need deep copy for NURBSExtension.
-   // MFEM_VERIFY(mesh.NURBSext == NULL,
-   //            "copying NURBS meshes is not implemented");
+   MFEM_VERIFY(mesh.NURBSext == NULL,
+               "copying NURBS meshes is not implemented");
    NURBSext = NULL;
-   if (mesh.NURBSext)
-   {
-      Array<int> Orders;
-      mesh.NURBSext->GetOrders(Orders);
-      NURBSext = new NURBSExtension(mesh.NURBSext, Orders);
-   }
 
    // Deep copy the NCMesh.
    ncmesh = mesh.ncmesh ? new NCMesh(*mesh.ncmesh) : NULL;
@@ -2397,8 +2387,6 @@ void Mesh::Copy(const Mesh &mesh, bool copy_nodes)
 Mesh::Mesh(const char *filename, int generate_edges, int refine,
            bool fix_orientation)
 {
-bdrOrient.SetSize(0);
-bdrEdgeOrient.SetSize(0,0);
    // Initialization as in the default constructor
    SetEmpty();
 
@@ -2417,8 +2405,6 @@ bdrEdgeOrient.SetSize(0,0);
 Mesh::Mesh(std::istream &input, int generate_edges, int refine,
            bool fix_orientation)
 {
-bdrOrient.SetSize(0);
-bdrEdgeOrient.SetSize(0,0);
    SetEmpty();
    Load(input, generate_edges, refine, fix_orientation);
 }
@@ -2454,10 +2440,6 @@ Mesh::Mesh(double *_vertices, int num_vertices,
            int *boundary_attributes, int num_boundary_elements,
            int dimension, int space_dimension)
 {
-
-bdrOrient.SetSize(0);
-bdrEdgeOrient.SetSize(0,0);
-
    if (space_dimension == -1)
    {
       space_dimension = dimension;
@@ -2747,8 +2729,7 @@ Mesh::Mesh(Mesh *mesh_array[], int num_pieces)
    int      i, j, ie, ib, iv, *v, nv;
    Element *el;
    Mesh    *m;
-bdrOrient.SetSize(0);
-bdrEdgeOrient.SetSize(0,0);
+
    SetEmpty();
 
    Dim = mesh_array[0]->Dimension();
@@ -2924,10 +2905,6 @@ bdrEdgeOrient.SetSize(0,0);
 
 Mesh::Mesh(Mesh *orig_mesh, int ref_factor, int ref_type)
 {
-bdrOrient.SetSize(0);
-bdrEdgeOrient.SetSize(0,0);
-
-
    Dim = orig_mesh->Dimension();
    MFEM_VERIFY(ref_factor > 1, "the refinement factor must be > 1");
    MFEM_VERIFY(ref_type == BasisType::ClosedUniform ||
@@ -3552,7 +3529,7 @@ int Mesh::GetQuadOrientation(const int *base, const int *test)
             cerr << " " << test[k];
          }
          cerr << " ]" << endl;
-         // mfem_error();
+        // mfem_error();
       }
 #endif
 
@@ -3688,37 +3665,6 @@ void Mesh::GetElementEdges(int i, Array<int> &edges, Array<int> &cor) const
    }
 }
 
-
-void Mesh::GenerateBdrElementEdges()
-{
-   bdrEdgeOrient.SetSize(NumOfBdrElements,4);
-   bdrEdgeOrient = -9999;
-
-   if (Dim == 2)
-   {
-      for (int i = 0; i < NumOfBdrElements; i++)
-      {
-         const int *v = boundary[i]->GetVertices();
-         bdrEdgeOrient(i,0) = (v[0] < v[1]) ? (1) : (-1);
-      }
-   }
-   else if (Dim == 3)
-   {
-      for (int i = 0; i < NumOfBdrElements; i++)
-      {
-         const int *v = boundary[i]->GetVertices();
-         const int ne = boundary[i]->GetNEdges();
-         for (int j = 0; j < ne; j++)
-         {
-            const int *e = boundary[i]->GetEdgeVertices(j);
-            bdrEdgeOrient(i,j) = (v[e[0]] < v[e[1]]) ? (1) : (-1);
-         }
-      }
-   }
-}
-
-
-
 void Mesh::GetBdrElementEdges(int i, Array<int> &edges, Array<int> &cor) const
 {
    if (Dim == 2)
@@ -3727,14 +3673,7 @@ void Mesh::GetBdrElementEdges(int i, Array<int> &edges, Array<int> &cor) const
       cor.SetSize(1);
       edges[0] = be_to_edge[i];
       const int *v = boundary[i]->GetVertices();
-      if (bdrEdgeOrient.NumCols() > 0)
-      {
-         cor[0] = bdrEdgeOrient(i,0);
-      }
-      else
-      {
-         cor[0] = (v[0] < v[1]) ? (1) : (-1);
-      }
+      cor[0] = (v[0] < v[1]) ? (1) : (-1);
    }
    else if (Dim == 3)
    {
@@ -3750,34 +3689,12 @@ void Mesh::GetBdrElementEdges(int i, Array<int> &edges, Array<int> &cor) const
       const int *v = boundary[i]->GetVertices();
       const int ne = boundary[i]->GetNEdges();
       cor.SetSize(ne);
-      /*for (int j = 0; j < ne; j++)
+      for (int j = 0; j < ne; j++)
       {
          const int *e = boundary[i]->GetEdgeVertices(j);
          cor[j] = (v[e[0]] < v[e[1]]) ? (1) : (-1);
-         cor[j] = bdrEdgeOrient(i,j);
-      }*/
-
-      if (bdrEdgeOrient.NumCols() > 0)
-      {
-         for (int j = 0; j < ne; j++) cor[j] = bdrEdgeOrient(i,j);
       }
-      else
-      {
-         for (int j = 0; j < ne; j++)
-         {
-            const int *e = boundary[i]->GetEdgeVertices(j);
-            cor[j] = (v[e[0]] < v[e[1]]) ? (1) : (-1);
-         }
-      }
-
    }
-
-
-   cout<<"Mesh::GetBdrElementEdges"<<endl;
-   edges.Print();
-   cout<<"--------------------------------"<<endl;
-   cor.Print();
-   cout<<"--------------------------------"<<endl;
 }
 
 void Mesh::GetFaceEdges(int i, Array<int> &edges, Array<int> &o) const
@@ -3987,15 +3904,13 @@ void Mesh::GetBdrElementFace(int i, int *f, int *o) const
    *f = be_to_face[i];
    bv = boundary[i]->GetVertices();
    fv = faces[be_to_face[i]]->GetVertices();
-   // GetBdrElementFaceOrientation();
-
+  // GetBdrElementFaceOrientation();
    if (bdrOrient.Size() == NumOfBdrElements)
    {
       *o = bdrOrient[i];
    }
    else
    {
-      if (bdrOrient.Size() >0) { cout <<" chk  "<<bdrOrient.Size()<<"   "<<NumOfBdrElements<<endl;}
       // find the orientation of the bdr. elem. w.r.t.
       // the corresponding face element (that's the base)
       switch (GetBdrElementType(i))
@@ -4010,12 +3925,11 @@ void Mesh::GetBdrElementFace(int i, int *f, int *o) const
             mfem_error("Mesh::GetBdrElementFace(...) 2");
       }
    }
-
 }
 
-void Mesh::GetBdrElementFaceOrientation()
+void Mesh::GetBdrElementFaceOrientation() 
 {
-   if (bdrOrient.Size() == NumOfBdrElements) { return; }
+   if (bdrOrient.Size() == NumOfBdrElements) return;
    bdrOrient.SetSize(NumOfBdrElements);
    const int *bv, *fv;
 
@@ -4374,11 +4288,7 @@ void Mesh::AddQuadFaceElement(int lf, int gf, int el,
    {
       int vv[4] = { v0, v1, v2, v3 };
       int oo = GetQuadOrientation(faces[gf]->GetVertices(), vv);
-      //cout<<oo<<endl;
-      //cout<<vv[0]<<" "<<vv[1]<<" "<< vv[2]<<" "<< vv[3]<<endl;
-      //<<oo<<endl;
-      //    MFEM_ASSERT(oo % 2 != 0, "");
-      if (oo % 2 == 0) { cout<<"MFEM_ASSERT Removed Mesh.c 4302"<<endl; }
+      MFEM_ASSERT(oo % 2 != 0, "");
       faces_info[gf].Elem2No  = el;
       faces_info[gf].Elem2Inf = 64 * lf + oo;
    }
@@ -4402,10 +4312,8 @@ void Mesh::GenerateFaces()
       faces_info[i].Elem1No = -1;
       faces_info[i].NCFace = -1;
    }
-   cout<<4327<<endl;
    for (i = 0; i < NumOfElements; i++)
    {
-      cout<<i<<endl;
       const int *v = elements[i]->GetVertices();
       const int *ef;
       if (Dim == 1)
@@ -4425,7 +4333,6 @@ void Mesh::GenerateFaces()
       }
       else
       {
-         cout<<"Dim 3 "<<endl;
          ef = el_to_face->GetRow(i);
          switch (GetElementType(i))
          {
@@ -4441,12 +4348,9 @@ void Mesh::GenerateFaces()
             }
             case Element::HEXAHEDRON:
             {
-               cout<<"HEXA "<<endl;
                for (int j = 0; j < 6; j++)
                {
                   const int *fv = hex_t::FaceVert[j];
-                  cout<<v[fv[0]]<<" "<<v[fv[1]]<<" "<< v[fv[2]]<<" "<< v[fv[3]]<<endl;
-
                   AddQuadFaceElement(j, ef[j], i,
                                      v[fv[0]], v[fv[1]], v[fv[2]], v[fv[3]]);
                }
@@ -4552,7 +4456,6 @@ STable3D *Mesh::GetElementToFaceTable(int ret_ftbl)
    }
    el_to_face = new Table(NumOfElements, 6);  // must be 6 for hexahedra
    faces_tbl = new STable3D(NumOfVertices);
-
    for (i = 0; i < NumOfElements; i++)
    {
       v = elements[i]->GetVertices();
@@ -4585,10 +4488,8 @@ STable3D *Mesh::GetElementToFaceTable(int ret_ftbl)
       }
    }
    el_to_face->Finalize();
-
    NumOfFaces = faces_tbl->NumberOfElements();
    be_to_face.SetSize(NumOfBdrElements);
-
    for (i = 0; i < NumOfBdrElements; i++)
    {
       v = boundary[i]->GetVertices();
@@ -4596,7 +4497,6 @@ STable3D *Mesh::GetElementToFaceTable(int ret_ftbl)
       {
          case Element::TRIANGLE:
          {
-
             be_to_face[i] = (*faces_tbl)(v[0], v[1], v[2]);
             break;
          }
@@ -6323,8 +6223,6 @@ void Mesh::InitFromNCMesh(const NCMesh &ncmesh)
 
 Mesh::Mesh(const NCMesh &ncmesh)
 {
-bdrOrient.SetSize(0);
-bdrEdgeOrient.SetSize(0,0);
    Init();
    InitTables();
    InitFromNCMesh(ncmesh);
@@ -7311,18 +7209,18 @@ void Mesh::PrintTopo2(std::ostream &out)
 
    for (int p = 0; p < np; p++)
    {
-      Array<int> verts, edges, faces, oedge, oface;
-      GetElementVertices(p, verts);
-      GetElementEdges(p, edges, oedge);
-      GetElementFaces(p, faces, oface);
-      out<<"Verts"<<endl;
-      verts.Print(out);
-      out<<"Edges"<<endl;
-      edges.Print(out);
-      oedge.Print(out);
-      out<<"Faces"<<endl;
-      faces.Print(out);
-      oface.Print(out);
+     Array<int> verts, edges, faces, oedge, oface;
+     GetElementVertices(p, verts);
+     GetElementEdges(p, edges, oedge);
+     GetElementFaces(p, faces, oface);
+     out<<"Verts"<<endl;
+     verts.Print(out);
+     out<<"Edges"<<endl;
+     edges.Print(out);
+     oedge.Print(out);
+     out<<"Faces"<<endl;
+     faces.Print(out);
+     oface.Print(out);
    }
 
    out<<"Edges"<<endl;

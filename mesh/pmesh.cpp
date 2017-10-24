@@ -84,6 +84,8 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
                  int part_method)
    : gtopo(comm)
 {
+cout <<" chk 12 -->  "<<mesh.bdrOrient.Size()<<"   "<<mesh.NumOfBdrElements<<endl;
+
    int i, j;
    int *partitioning;
    Array<bool> activeBdrElem;
@@ -181,11 +183,13 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
 
    // determine vertices
    for (i = 0; i < vert_global_local.Size(); i++)
+   {
       if (vert_global_local[i] >= 0)
       {
          vertices[vert_global_local[i]].SetCoords(mesh.SpaceDimension(),
                                                   mesh.GetVertex(i));
       }
+   }
 
    // determine elements
    element_counter = 0;
@@ -208,7 +212,10 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
    {
       activeBdrElem.SetSize(mesh.GetNBE());
       activeBdrElem = false;
-   }
+   }   
+
+cout <<" chk 13 -->  "<<mesh.bdrOrient.Size()<<"   "<<mesh.NumOfBdrElements<<endl;
+
    // build boundary elements
    if (Dim == 3)
    {
@@ -216,8 +223,11 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
       for (i = 0; i < mesh.GetNBE(); i++)
       {
          int face, o, el1, el2;
+         cout<<221<<" "<<i<<endl;
          mesh.GetBdrElementFace(i, &face, &o);
+         cout<<223<<" "<<i<<endl;
          mesh.GetFaceElements(face, &el1, &el2);
+         cout<<225<<" "<<i<<endl;
          if (partitioning[(o % 2 == 0 || el2 < 0) ? el1 : el2] == MyRank)
          {
             NumOfBdrElements++;
@@ -227,12 +237,12 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
             }
          }
       }
-
+      cout<<237<<endl;
       bdrelem_counter = 0;
       boundary.SetSize(NumOfBdrElements);
       for (i = 0; i < mesh.GetNBE(); i++)
       {
-         int face, o, el1, el2;
+         int face, o, el1, el2; cout<<238<<endl;
          mesh.GetBdrElementFace(i, &face, &o);
          mesh.GetFaceElements(face, &el1, &el2);
          if (partitioning[(o % 2 == 0 || el2 < 0) ? el1 : el2] == MyRank)
@@ -339,21 +349,30 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
    STable3D *faces_tbl = NULL;
    if (Dim == 3)
    {
+      cout<<344<<" "<<NumOfVertices<<endl;
+      if (el_to_face) { cout<<" el_to_face"<<endl; }
+      if (be_to_face) { cout<<" be_to_face"<<endl; }
+
+      el_to_face = mesh.el_to_face;
+      mesh.be_to_face.Copy(be_to_face);
+
       faces_tbl = GetElementToFaceTable(1);
+      cout<<346<<" "<<NumOfVertices<<endl;
    }
    else
    {
       NumOfFaces = 0;
    }
+   cout<<358<<endl;
    GenerateFaces();
-
+   cout<<359<<endl;
    ListOfIntegerSets  groups;
    IntegerSet         group;
 
    // the first group is the local one
    group.Recreate(1, &MyRank);
    groups.Insert(group);
-
+   cout<<366<<endl;
 #ifdef MFEM_DEBUG
    if (Dim < 3 && mesh.GetNFaces() != 0)
    {
@@ -367,6 +386,7 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
    Array<int> face_group(mesh.GetNFaces());
    for (i = 0; i < face_group.Size(); i++)
    {
+      cout<<i<<endl;
       int el[2];
       face_group[i] = -1;
       mesh.GetFaceElements(i, &el[0], &el[1]);
@@ -383,7 +403,7 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
          }
       }
    }
-
+   cout<<388<<endl;
    // determine shared edges
    int sedge_counter = 0;
    if (!edge_element)
@@ -425,7 +445,7 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
          edge_element->GetRow(i)[0] = -1;
       }
    }
-
+   cout<<430<<endl;
    // determine shared vertices
    int svert_counter = 0;
    Table *vert_element = mesh.GetVertexToElementTable(); // we must delete this
@@ -468,7 +488,7 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
          group_sface.AddAColumnInRow(face_group[i]);
       }
    }
-
+   cout<<473<<endl;
    group_sface.MakeJ();
 
    sface_counter = 0;
@@ -533,7 +553,7 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
    // build shared_faces and sface_lface
    shared_faces.SetSize(sface_counter);
    sface_lface. SetSize(sface_counter);
-
+   cout<<538<<endl;
    if (Dim == 3)
    {
       sface_counter = 0;
@@ -583,7 +603,7 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
 
       delete faces_tbl;
    }
-
+   cout<<588<<endl;
    // build shared_edges and sedge_ledge
    shared_edges.SetSize(sedge_counter);
    sedge_ledge. SetSize(sedge_counter);
@@ -618,7 +638,7 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
    }
 
    delete edge_element;
-
+   cout<<623<<endl;
    // build svert_lvert
    svert_lvert.SetSize(svert_counter);
 
@@ -665,7 +685,7 @@ ParMesh::ParMesh(MPI_Comm comm, Mesh &mesh, int *partitioning_,
    {
       delete [] partitioning;
    }
-
+   cout<<670<<endl;
    have_face_nbr_data = false;
 }
 

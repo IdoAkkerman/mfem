@@ -1288,74 +1288,6 @@ NURBSExtension::NURBSExtension(std::istream &input)
    }
 }
 
-NURBSExtension::NURBSExtension(NURBSExtension *parent, Array<int>  &bnds0,
-                               Array<int>  &bnds1)
-{
-   if (bnds0.Size() != bnds1.Size()) { mfem_error("NURBSExtension::NURBSExtension() boundary lists not of equal size"); }
-   parent->Order.Copy(Order);
-
-   patchTopo = new Mesh(*parent->patchTopo);
-   own_topo = 1;
-
-   Table *tmpTable = patchTopo->GetFaceEdgeTable();
-   patchTopo->GetBdrElementFaceOrientation();
-   parent->edge_to_knot.Copy(edge_to_knot);
-
-   for (int i = 0; i < bnds0.Size(); i++)
-   {
-      patchTopo->ConnectBoundaries(bnds0[i], bnds1[i], edge_to_knot);
-   }
-
-   NumOfKnotVectors = parent->GetNKV();
-   knotVectors.SetSize(NumOfKnotVectors);
-   for (int i = 0; i < NumOfKnotVectors; i++)
-   {
-      knotVectors[i] = new KnotVector(*parent->GetKnotVector(i));
-   }
-
-   // copy some data from parent
-   //  NumOfElements    = parent->NumOfElements;
-   //  NumOfBdrElements = parent->NumOfBdrElements;
-   CountElements();
-   CountBdrElements();
-
-   GenerateOffsets(); // dof offsets will be different from parent
-
-
-   NumOfActiveElems    = parent->NumOfActiveElems;
-   NumOfActiveBdrElems = parent->NumOfActiveBdrElems;
-   parent->activeElem.Copy(activeElem);
-   parent->activeBdrElem.Copy(activeBdrElem);
-
-   //activeElem.SetSize(NumOfElements);
-   //activeElem = true;
-
-   //NumOfActiveBdrElems = NumOfBdrElements;
-   //activeBdrElem.SetSize(NumOfBdrElements);
-   //activeBdrElem = true;
-
-   GenerateActiveVertices();
-   GenerateActiveBdrElems();
-   //  cout<<"activeVert = "<<endl;
-   // activeVert.Print();
-   // cout<<"------------------"<<endl;
-   // NumOfActiveVertices = parent->NumOfActiveVertices;
-   //NumOfActiveElems    = parent->NumOfActiveElems;
-   //NumOfActiveBdrElems = parent->NumOfActiveBdrElems;
-
-   //parent->activeVert.Copy(activeVert);
-   //parent->activeElem.Copy(activeElem);
-   //parent->activeBdrElem.Copy(activeBdrElem);
-
-
-
-   GenerateElementDofTable();
-   GenerateBdrElementDofTable();
-
-   weights.SetSize(GetNDof());
-   weights = 1.0;
-}
-
 NURBSExtension::NURBSExtension(NURBSExtension *parent, int Order_)
 {
    Order = Order_;
@@ -1364,8 +1296,8 @@ NURBSExtension::NURBSExtension(NURBSExtension *parent, int Order_)
    Table *tmpTable = patchTopo->GetFaceEdgeTable();
    own_topo = 1;
 
-   //patchTopo->ConnectBoundaries(2,4);
-   //patchTopo->ConnectBoundaries(3,5);
+   patchTopo->ConnectBoundaries(2,4);
+   patchTopo->ConnectBoundaries(3,5);
 
    parent->edge_to_knot.Copy(edge_to_knot);
 
@@ -1404,14 +1336,24 @@ NURBSExtension::NURBSExtension(NURBSExtension *parent, const Array<int> &Order_)
    Order_.Copy(Order);
 
    patchTopo = new Mesh(*parent->patchTopo);
-   own_topo = 1;
-
    Table *tmpTable = patchTopo->GetFaceEdgeTable();
    patchTopo->GetBdrElementFaceOrientation();
-   parent->edge_to_knot.Copy(edge_to_knot);
 
-   //patchTopo->ConnectBoundaries(2,4, edge_to_knot);
-   //patchTopo->ConnectBoundaries(3,5, edge_to_knot);
+
+patchTopo->PrintTopo2();
+
+
+   own_topo = 1;
+cout <<"NumOfEdges    " <<patchTopo->NumOfEdges<<endl;
+cout <<"NumOfFaces    " <<patchTopo->NumOfFaces<<endl;
+cout <<"NumOfVertices " <<patchTopo->NumOfVertices<<endl;
+   patchTopo->ConnectBoundaries(2,4);
+patchTopo->PrintTopo2();
+
+   patchTopo->ConnectBoundaries(3,5);
+patchTopo->PrintTopo2();
+
+   parent->edge_to_knot.Copy(edge_to_knot);
 
    NumOfKnotVectors = parent->GetNKV();
    knotVectors.SetSize(NumOfKnotVectors);
@@ -1441,6 +1383,7 @@ NURBSExtension::NURBSExtension(NURBSExtension *parent, const Array<int> &Order_)
 
    weights.SetSize(GetNDof());
    weights = 1.0;
+//exit(1);
 }
 
 NURBSExtension::NURBSExtension(Mesh *mesh_array[], int num_pieces)
@@ -1592,7 +1535,6 @@ void NURBSExtension::GenerateActiveVertices()
          {
             for (int i = 0; i < nx; i++)
             {
-
                if (activeElem[g_el])
                {
                   if (dim == 2)
@@ -1833,6 +1775,11 @@ void NURBSExtension::GenerateOffsets()
    Array<int> edges;
    Array<int> orient;
 
+cout<<"nv = "<<nv<<endl;
+cout<<"ne = "<<ne<<endl;
+cout<<"nf = "<<nf<<endl;
+cout<<"np = "<<np<<endl;
+
    v_meshOffsets.SetSize(nv);
    e_meshOffsets.SetSize(ne);
    f_meshOffsets.SetSize(nf);
@@ -2010,11 +1957,6 @@ void NURBSExtension::Get3DElementTopo(Array<Element *> &elements)
    for (int p = 0; p < GetNP(); p++)
    {
       p2g.SetPatchVertexMap(p, kv);
-
-      cout<<p<<" "<<kv[0]->GetOrder()<<" "
-          <<kv[1]->GetOrder()<<" "
-          <<kv[2]->GetOrder()<<endl;
-
       int nx = p2g.nx();
       int ny = p2g.ny();
       int nz = p2g.nz();
@@ -2104,10 +2046,7 @@ void NURBSExtension::Get3DBdrElementTopo(Array<Element *> &boundary)
    g_be = l_be = 0;
    for (int b = 0; b < GetNBP(); b++)
    {
-
       p2g.SetBdrPatchVertexMap(b, kv, okv);
-      cout<<b<<" "<<patchTopo->GetBdrAttribute(b)<<endl;
-      cout<<b<<" "<<okv[0]<<" "<<okv[1]<<endl;
       int nx = p2g.nx();
       int ny = p2g.ny();
 
@@ -2116,7 +2055,6 @@ void NURBSExtension::Get3DBdrElementTopo(Array<Element *> &boundary)
       for (int j = 0; j < ny; j++)
       {
          int _j = (okv[1] >= 0) ? j : (ny - 1 - j);
-         // cout<<" j --> "<<j<<" "<<_j<<endl;
          for (int i = 0; i < nx; i++)
          {
             if (activeBdrElem[g_be])
@@ -2354,7 +2292,7 @@ void NURBSExtension::Generate3DBdrElementDofTable()
    bel_dof = new Table(NumOfActiveBdrElems, (Order.Max() + 1)*(Order.Max() + 1));
    bel_to_patch.SetSize(NumOfActiveBdrElems);
    bel_to_IJK.SetSize(NumOfActiveBdrElems, 2);
-   //cout << NumOfActiveBdrElems << endl;
+
    for (int b = 0; b < GetNBP(); b++)
    {
       p2g.SetBdrPatchDofMap(b, kv, okv);
@@ -3023,13 +2961,11 @@ void NURBSPatchMap::GetBdrPatchKnotVectors(int p, KnotVector *kv[], int *okv)
 {
    Ext->patchTopo->GetBdrElementVertices(p, verts);
    Ext->patchTopo->GetBdrElementEdges(p, edges, oedge);
-
    kv[0] = Ext->KnotVec(edges[0], oedge[0], &okv[0]);
    if (Ext->Dimension() == 3)
    {
       faces.SetSize(1);
       Ext->patchTopo->GetBdrElementFace(p, &faces[0], &opatch);
-
       kv[1] = Ext->KnotVec(edges[1], oedge[1], &okv[1]);
    }
    else
@@ -3119,7 +3055,6 @@ void NURBSPatchMap::SetBdrPatchVertexMap(int p, KnotVector *kv[], int *okv)
 
       for (int i = 0; i < edges.Size(); i++)
       {
-         cout<<"edge "<<i<<" "<<edges[i]<<" "<<endl;
          edges[i] = Ext->e_meshOffsets[edges[i]];
       }
 
@@ -3132,12 +3067,12 @@ void NURBSPatchMap::SetBdrPatchDofMap(int p, KnotVector *kv[],  int *okv)
    GetBdrPatchKnotVectors(p, kv, okv);
 
    I = kv[0]->GetNCP() - 2;
-
+//cout<<3058<<endl;
    for (int i = 0; i < verts.Size(); i++)
    {
       verts[i] = Ext->v_spaceOffsets[verts[i]];
    }
-
+//cout<<3063<<endl;
    if (Ext->Dimension() == 2)
    {
       pOffset = Ext->e_spaceOffsets[edges[0]];
@@ -3145,14 +3080,14 @@ void NURBSPatchMap::SetBdrPatchDofMap(int p, KnotVector *kv[],  int *okv)
    else
    {
       J = kv[1]->GetNCP() - 2;
-
+//cout<<3071<<endl;
       for (int i = 0; i < edges.Size(); i++)
-      {
-         //cout<<i<<"  ";
-         //cout<<edges[i]<<endl;
+      {//cout<<i<<endl;
          edges[i] = Ext->e_spaceOffsets[edges[i]];
       }
+//cout<<3076<<" "<<faces[0]<<endl;
       pOffset = Ext->f_spaceOffsets[faces[0]];
+//cout<<3078<<endl;
    }
 }
 

@@ -50,7 +50,6 @@ class Mesh
    friend class NURBSExtension;
 
 protected:
-public:
    int Dim;
    int spaceDim;
 
@@ -73,11 +72,7 @@ public:
    Array<Element *> boundary;
    Array<Element *> faces;
 
-   mutable Array<int>       bdrOrient;
-   mutable Array2D<int>     bdrEdgeOrient; // TBD
-   mutable Array<int>       faceOrient; // TBD ??
-
-   void GenerateBdrElementEdges();
+mutable Array<int>       bdrOrient;
 
    struct FaceInfo
    {
@@ -419,18 +414,14 @@ protected:
                        Array<int> &elem_vtx, Array<int> &attr) const;
 
 public:
-   void GetBdrElementFaceOrientation();
+void GetBdrElementFaceOrientation();
    Mesh() { SetEmpty(); }
 
    /** Copy constructor. Performs a deep copy of (almost) all data, so that the
        source mesh can be modified (e.g. deleted, refined) without affecting the
        new mesh. If 'copy_nodes' is false, use a shallow (pointer) copy for the
        nodes, if present. */
-   void Copy(const Mesh &mesh, bool copy_nodes = true);
-   explicit Mesh(const Mesh &mesh, bool copy_nodes = true)
-   {
-      Copy(mesh, copy_nodes);
-   }
+   explicit Mesh(const Mesh &mesh, bool copy_nodes = true);
 
    /// Construct a Mesh from the given primary data.
    /** The array @a vertices is used as external data, i.e. the Mesh does not
@@ -594,13 +585,6 @@ public:
 
        @note The constructed Mesh is linear, i.e. it does not have nodes. */
    Mesh(Mesh *orig_mesh, int ref_factor, int ref_type);
-
-
-   /// Create a new mesh based on @a orig_mesh, but connect the given boundaries
-   Mesh(Mesh *orig_mesh, Array<int>  &bnds0, Array<int>  &bnds1);
-
-   void ConnectBnd2( Array<int>  &bnds0, Array<int>  &bnds1);
-
 
    /** This is similar to the mesh constructor with the same arguments, but here
        the current mesh is destroyed and another one created based on the data
@@ -1087,7 +1071,7 @@ public:
    void RemoveInternalBoundaries();
 
    // Connects boundaries to create periodic meshes
-   void ConnectBoundaries(int bnd0, int bnd1, Array<int> &edge_to_knot);
+   void ConnectBoundaries(int bnd0, int bnd1);
 
    /** Get the size of the i-th element relative to the perfect
        reference element. */
