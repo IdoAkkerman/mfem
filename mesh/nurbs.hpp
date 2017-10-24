@@ -207,6 +207,9 @@ protected:
    void GetPatchKnotVectors   (int p, Array<KnotVector *> &kv);
    void GetBdrPatchKnotVectors(int p, Array<KnotVector *> &kv);
 
+
+   void ConnectBoundaries(int bnd0, int bnd1);
+
    // also count the global NumOfVertices and the global NumOfDofs
    void GenerateOffsets();
    // count the global NumOfElements
@@ -254,6 +257,11 @@ protected:
    // determine activeVert, NumOfActiveVertices from the activeElem array
    void GenerateActiveVertices();
 
+   // determine activeDof, NumOfActiveDofs from the activeElem array
+   void GenerateActiveDofs();
+   void Generate2DActiveDofs();
+   void Generate3DActiveDofs();
+
    // determine activeBdrElem, NumOfActiveBdrElems
    void GenerateActiveBdrElems();
 
@@ -271,6 +279,9 @@ public:
    NURBSExtension(NURBSExtension *parent, const Array<int> &Order);
    /// Construct a NURBSExtension by merging a partitioned NURBS mesh
    NURBSExtension(Mesh *mesh_array[], int num_pieces);
+
+   NURBSExtension(NURBSExtension *parent, const Array<int> &Order_,
+                  Array<int>  &bnds0, Array<int> &bnds1);
 
    void MergeGridFunctions(GridFunction *gf_array[], int num_pieces,
                            GridFunction &merged);
