@@ -176,6 +176,9 @@ protected:
    Array<KnotVector *> knotVectors;
    Vector weights;
 
+   // periodic BC info
+   //  dof 2 dof map
+   //  master and slave boundary indices
    Array<int> d2d;
    Array<int> master;
    Array<int> slave;
@@ -211,7 +214,8 @@ protected:
    void GetPatchKnotVectors   (int p, Array<KnotVector *> &kv);
    void GetBdrPatchKnotVectors(int p, Array<KnotVector *> &kv);
 
-
+   // periodic BC helper functions
+   void InitDofMap();
    void ConnectBoundaries(int bnd0, int bnd1);
 
    // also count the global NumOfVertices and the global NumOfDofs
@@ -264,11 +268,6 @@ protected:
    // determine activeVert, NumOfActiveVertices from the activeElem array
    void GenerateActiveVertices();
 
-   // determine activeDof, NumOfActiveDofs from the activeElem array
-   void GenerateActiveDofs();
-  // void Generate2DActiveDofs();
-  // void Generate3DActiveDofs();
-
    // determine activeBdrElem, NumOfActiveBdrElems
    void GenerateActiveBdrElems();
 
@@ -287,8 +286,7 @@ public:
    /// Construct a NURBSExtension by merging a partitioned NURBS mesh
    NURBSExtension(Mesh *mesh_array[], int num_pieces);
 
- //  NURBSExtension(NURBSExtension *parent, const Array<int> &Order_,
- //                 Array<int>  &bnds0, Array<int> &bnds1);
+   // generate connections between boundaries -- such as periodic BCs
    void ConnectBoundaries( Array<int>  &bnds0, Array<int> &bnds1);
 
    void MergeGridFunctions(GridFunction *gf_array[], int num_pieces,

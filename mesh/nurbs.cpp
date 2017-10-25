@@ -1269,7 +1269,7 @@ NURBSExtension::NURBSExtension(std::istream &input)
    }
 
    GenerateActiveVertices();
-   GenerateActiveDofs();
+   InitDofMap();
    GenerateElementDofTable();
    GenerateActiveBdrElems();
    GenerateBdrElementDofTable();
@@ -1321,7 +1321,7 @@ NURBSExtension::NURBSExtension(NURBSExtension *parent, int Order_)
    parent->activeElem.Copy(activeElem);
    parent->activeBdrElem.Copy(activeBdrElem);
 
-   GenerateActiveDofs();
+   InitDofMap();
    GenerateElementDofTable();
    GenerateBdrElementDofTable();
 
@@ -1361,66 +1361,21 @@ NURBSExtension::NURBSExtension(NURBSExtension *parent, const Array<int> &Order_)
    parent->activeElem.Copy(activeElem);
    parent->activeBdrElem.Copy(activeBdrElem);
 
-   GenerateActiveDofs();
+   InitDofMap();
    GenerateElementDofTable();
    GenerateBdrElementDofTable();
 
    weights.SetSize(GetNDof());
    weights = 1.0;
 }
-/*
-NURBSExtension::NURBSExtension(NURBSExtension *parent, const Array<int> &Order_,
-                               Array<int>  &bnds0, Array<int> &bnds1)
+
+void NURBSExtension::InitDofMap()
 {
-   if (bnds0.Size() != bnds1.Size()) { mfem_error("NURBSExtension::NURBSExtension() boundary lists not of equal size"); }
-   Order_.Copy(Order);
-
-   patchTopo = parent->patchTopo;
-   own_topo = 0;
-
-   parent->edge_to_knot.Copy(edge_to_knot);
-
-   NumOfKnotVectors = parent->GetNKV();
-   knotVectors.SetSize(NumOfKnotVectors);
-   Array<int> pOrders;
-   parent->GetOrders(pOrders);
-   for (int i = 0; i < NumOfKnotVectors; i++)
-   {
-      knotVectors[i] =
-         parent->GetKnotVector(i)->DegreeElevate(Order[i] - pOrders[i]);
-   }
-
-   // copy some data from parent
-   NumOfElements    = parent->NumOfElements;
-   NumOfBdrElements = parent->NumOfBdrElements;
-
-   GenerateOffsets(); // dof offsets will be different from parent
-
-   NumOfActiveVertices = parent->NumOfActiveVertices;
-   NumOfActiveElems    = parent->NumOfActiveElems;
-   NumOfActiveBdrElems = parent->NumOfActiveBdrElems;
-   parent->activeVert.Copy(activeVert);
-   parent->activeElem.Copy(activeElem);
-   parent->activeBdrElem.Copy(activeBdrElem);
-
-   GenerateActiveDofs();
-   GenerateBdrElementDofTable();
-
-  // activeDof.Print();
-   for (int i = 0; i < bnds0.Size(); i++)
-   {
-      ConnectBoundaries(bnds0[i], bnds1[i]);
-   }
-  // activeDof.Print();
-
-   GenerateElementDofTable();
-   GenerateBdrElementDofTable();
-
-   weights.SetSize(GetNDof());
-   weights = 1.0;
-
-}*/
-
+   d2d.SetSize(NumOfDofs);
+   for (int i = 0; i < NumOfDofs; i++) d2d[i] = i;
+   master.SetSize(0);
+   slave.SetSize(0);
+}
 
 void NURBSExtension::ConnectBoundaries(Array<int>  &bnds0, Array<int> &bnds1)
 {
@@ -1430,12 +1385,8 @@ void NURBSExtension::ConnectBoundaries(Array<int>  &bnds0, Array<int> &bnds1)
    }
    if (bnds0.Size() == 0 )  return;
 
-   //cout<<"Connecting boundaries"<<endl;
-   //cout<<" - master "; bnds0.Print();
-   //cout<<" - slave  "; bnds1.Print();
-
    // Connect
-   GenerateActiveDofs();
+   InitDofMap();
    bnds0.Copy(master);
    bnds1.Copy(slave);
    for (int i = 0; i < master.Size(); i++)
@@ -1447,9 +1398,6 @@ void NURBSExtension::ConnectBoundaries(Array<int>  &bnds0, Array<int> &bnds1)
    GenerateElementDofTable();
    GenerateBdrElementDofTable();
 }
-
-
-
 
 void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
 {
@@ -1500,8 +1448,6 @@ void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
    }
 #endif 
 
-   int gbe = 0;
-
       for (int j = 0; j < nks1; j++)
       {
          if (kv0[1]->isElement(j))
@@ -1512,10 +1458,6 @@ void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
                if (kv0[0]->isElement(i))
                {
                   if (!kv1[0]->isElement(j)) mfem_error("isElement does not match #0");
-                //  if (activeBdrElem[gbe])
-                //  {
-                     //int *dofs = bel_dof->GetRow(lbe);
-                     //int idx = 0;
                      for (int jj = 0; jj <= kv0[1]->GetOrder(); jj++)
                      {
                         int jj0 = (okv0[1] >= 0) ? (j+jj) : (ny-j-jj);
@@ -1529,8 +1471,6 @@ void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
                            d2d[p2g0(ii0,jj0)] = d2d[p2g1(ii1,jj1)];
                         }
                      }
-                //  }
-                //  gbe++;
                }
             }
          }
@@ -1591,7 +1531,7 @@ NURBSExtension::NURBSExtension(Mesh *mesh_array[], int num_pieces)
    activeElem = true;
 
    GenerateActiveVertices();
-   GenerateActiveDofs();
+   InitDofMap();
    GenerateElementDofTable();
    GenerateActiveBdrElems();
    GenerateBdrElementDofTable();
@@ -1753,127 +1693,6 @@ void NURBSExtension::GenerateActiveVertices()
 }
 
 
-void NURBSExtension::GenerateActiveDofs()
-{
-   d2d.SetSize(NumOfDofs);
-   for (int i = 0; i < NumOfDofs; i++) d2d[i] = i;
-   master.SetSize(0);
-   slave.SetSize(0);
-}
-
-
-/*
-void NURBSExtension::GenerateActiveDofs()
-{
-   activeDof.SetSize(GetNTotalDof());
-   activeDof = 0;
-
-   if (Dimension() == 2)
-   {
-      Generate2DActiveDofs();
-   }
-   else
-   {
-      Generate3DActiveDofs();
-   }
-
-   NumOfActiveDofs = 0;
-   for (int d = 0; d < GetNTotalDof(); d++)
-   {
-      if (activeDof[d])
-      {
-         NumOfActiveDofs++;
-         activeDof[d] = NumOfActiveDofs;
-      }
-   }
-}
-
-void NURBSExtension::Generate2DActiveDofs()
-{
-   int eg = 0;
-   KnotVector *kv[2];
-   NURBSPatchMap p2g(this);
-
-   for (int p = 0; p < GetNP(); p++)
-   {
-      p2g.SetPatchDofMap(p, kv);
-
-      // Load dofs
-      for (int j = 0; j < kv[1]->GetNKS(); j++)
-      {
-         if (kv[1]->isElement(j))
-         {
-            for (int i = 0; i < kv[0]->GetNKS(); i++)
-            {
-               if (kv[0]->isElement(i))
-               {
-                  if (activeElem[eg])
-                  {
-                     for (int jj = 0; jj <= kv[1]->GetOrder(); jj++)
-                     {
-                        for (int ii = 0; ii <= kv[0]->GetOrder(); ii++)
-                        {
-                           activeDof[p2g(i+ii,j+jj)] = 1;
-                        }
-                     }
-                  }
-                  eg++;
-               }
-            }
-         }
-      }
-   }
-
-}
-
-void NURBSExtension::Generate3DActiveDofs()
-{
-   int eg = 0;
-   KnotVector *kv[3];
-   NURBSPatchMap p2g(this);
-
-
-   for (int p = 0; p < GetNP(); p++)
-   {
-      p2g.SetPatchDofMap(p, kv);
-
-      // Load dofs
-      for (int k = 0; k < kv[2]->GetNKS(); k++)
-      {
-         if (kv[2]->isElement(k))
-         {
-            for (int j = 0; j < kv[1]->GetNKS(); j++)
-            {
-               if (kv[1]->isElement(j))
-               {
-                  for (int i = 0; i < kv[0]->GetNKS(); i++)
-                  {
-                     if (kv[0]->isElement(i))
-                     {
-                        if (activeElem[eg])
-                        {
-                           for (int kk = 0; kk <= kv[2]->GetOrder(); kk++)
-                           {
-                              for (int jj = 0; jj <= kv[1]->GetOrder(); jj++)
-                              {
-                                 for (int ii = 0; ii <= kv[0]->GetOrder(); ii++)
-                                 {
-                                    activeDof[p2g(i+ii,j+jj,k+kk)] = 1;
-                                 }
-                              }
-                           }
-                        }
-                        eg++;
-                     }
-                  }
-               }
-            }
-         }
-      }
-   }
-}
-*/
-
 void NURBSExtension::GenerateActiveBdrElems()
 {
    int dim = Dimension();
@@ -1894,7 +1713,6 @@ void NURBSExtension::GenerateActiveBdrElems()
 
    // TODO: generate actual boundary?
 }
-
 
 void NURBSExtension::MergeWeights(Mesh *mesh_array[], int num_pieces)
 {
@@ -2745,7 +2563,7 @@ void NURBSExtension::SetKnotsFromPatches()
    activeElem = true;
 
    GenerateActiveVertices();
-   GenerateActiveDofs();
+   InitDofMap();
    GenerateElementDofTable();
    GenerateActiveBdrElems();
    GenerateBdrElementDofTable();
@@ -3082,7 +2900,7 @@ ParNURBSExtension::ParNURBSExtension(MPI_Comm comm, NURBSExtension *parent,
    SetActive(partitioning, active_bel);
 
    GenerateActiveVertices();
-   GenerateActiveDofs();
+   InitDofMap();
    GenerateElementDofTable();
    // GenerateActiveBdrElems(); // done by SetActive for now
    GenerateBdrElementDofTable();
