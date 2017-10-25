@@ -1565,10 +1565,8 @@ void FiniteElementSpace::Save(std::ostream &out) const
       }
       else
       {
-         Array<int> Orders;
-         NURBSext->GetOrders(Orders);
-         out << "NURBSext: " << Orders.Size() << '\n';
-         Orders.Save(out);
+         out << "NURBSext: " << 1 << '\n';
+         NURBSext->Save(out);
       }
    }
 }

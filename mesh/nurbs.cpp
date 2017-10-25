@@ -1289,48 +1289,35 @@ NURBSExtension::NURBSExtension(std::istream &input)
    }
 }
 
-NURBSExtension::NURBSExtension(NURBSExtension *parent, int Order_)
+NURBSExtension::NURBSExtension(NURBSExtension *parent, std::istream &input)
 {
-   Order = Order_;
+   Array<int> order, bnds0, bnds1;
 
-   patchTopo = parent->patchTopo;
-   own_topo = 0;
+   order.Load(input);
+   bnds0.Load(input);
+   bnds1.Load(input);
 
-   parent->edge_to_knot.Copy(edge_to_knot);
-
-   NumOfKnotVectors = parent->GetNKV();
-   knotVectors.SetSize(NumOfKnotVectors);
-   Array<int> pOrders;
-   parent->GetOrders(pOrders);
-   for (int i = 0; i < NumOfKnotVectors; i++)
-   {
-      knotVectors[i] =
-         parent->GetKnotVector(i)->DegreeElevate(Order_ - pOrders[i]);
-   }
-
-   // copy some data from parent
-   NumOfElements    = parent->NumOfElements;
-   NumOfBdrElements = parent->NumOfBdrElements;
-
-   GenerateOffsets(); // dof offsets will be different from parent
-
-   NumOfActiveVertices = parent->NumOfActiveVertices;
-   NumOfActiveElems    = parent->NumOfActiveElems;
-   NumOfActiveBdrElems = parent->NumOfActiveBdrElems;
-   parent->activeVert.Copy(activeVert);
-   parent->activeElem.Copy(activeElem);
-   parent->activeBdrElem.Copy(activeBdrElem);
-
-   InitDofMap();
-   GenerateElementDofTable();
-   GenerateBdrElementDofTable();
-
-   weights.SetSize(GetNDof());
-   weights = 1.0;
+   Init(parent, order);
+   ConnectBoundaries(bnds0, bnds1);
 }
 
-NURBSExtension::NURBSExtension(NURBSExtension *parent, const Array<int> &Order_)
+
+NURBSExtension::NURBSExtension(NURBSExtension *parent, int OrderInt)
 {
+
+   Array<int> order(NumOfKnotVectors);
+   order = OrderInt;
+   Init(parent, order);
+}
+
+NURBSExtension::NURBSExtension(NURBSExtension *parent, const Array<int> &Order)
+{
+   Init(parent, Order);
+}
+
+void NURBSExtension::Init(NURBSExtension *parent, const Array<int> &Order_)
+{
+
    Order_.Copy(Order);
 
    patchTopo = parent->patchTopo;
@@ -1367,6 +1354,141 @@ NURBSExtension::NURBSExtension(NURBSExtension *parent, const Array<int> &Order_)
 
    weights.SetSize(GetNDof());
    weights = 1.0;
+}
+
+
+NURBSExtension::NURBSExtension(Mesh *mesh_array[], int num_pieces)
+{
+   NURBSExtension *parent = mesh_array[0]->NURBSext;
+
+   if (!parent->own_topo)
+      mfem_error("NURBSExtension::NURBSExtension :\n"
+                 "  parent does not own the patch topology!");
+   patchTopo = parent->patchTopo;
+   own_topo = 1;
+   parent->own_topo = 0;
+
+   parent->edge_to_knot.Copy(edge_to_knot);
+
+   parent->GetOrders(Order);
+
+   NumOfKnotVectors = parent->GetNKV();
+   knotVectors.SetSize(NumOfKnotVectors);
+   for (int i = 0; i < NumOfKnotVectors; i++)
+   {
+      knotVectors[i] = new KnotVector(*parent->GetKnotVector(i));
+   }
+
+   GenerateOffsets();
+   CountElements();
+   CountBdrElements();
+
+   // assuming the meshes define a partitioning of all the elements
+   NumOfActiveElems = NumOfElements;
+   activeElem.SetSize(NumOfElements);
+   activeElem = true;
+
+   GenerateActiveVertices();
+   InitDofMap();
+   GenerateElementDofTable();
+   GenerateActiveBdrElems();
+   GenerateBdrElementDofTable();
+
+   weights.SetSize(GetNDof());
+   MergeWeights(mesh_array, num_pieces);
+}
+
+NURBSExtension::~NURBSExtension()
+{
+   if (patches.Size() == 0)
+   {
+      delete bel_dof;
+      delete el_dof;
+   }
+
+   for (int i = 0; i < knotVectors.Size(); i++)
+   {
+      delete knotVectors[i];
+   }
+
+   for (int i = 0; i < patches.Size(); i++)
+   {
+      delete patches[i];
+   }
+
+   if (own_topo)
+   {
+      delete patchTopo;
+   }
+}
+
+void NURBSExtension::Save(std::ostream &out) const
+{
+   Order.Save(out);
+   master.Save(out);
+   slave .Save(out);
+}
+
+
+void NURBSExtension::Print(std::ostream &out) const
+{
+   patchTopo->PrintTopo(out, edge_to_knot);
+   if (patches.Size() == 0)
+   {
+      out << "\nknotvectors\n" << NumOfKnotVectors << '\n';
+      for (int i = 0; i < NumOfKnotVectors; i++)
+      {
+         knotVectors[i]->Print(out);
+      }
+
+      if (NumOfActiveElems < NumOfElements)
+      {
+         out << "\nmesh_elements\n" << NumOfActiveElems << '\n';
+         for (int i = 0; i < NumOfElements; i++)
+            if (activeElem[i])
+            {
+               out << i << '\n';
+            }
+      }
+
+      out << "\nweights\n";
+      weights.Print(out, 1);
+   }
+   else
+   {
+      out << "\npatches\n";
+      for (int p = 0; p < patches.Size(); p++)
+      {
+         out << "\n# patch " << p << "\n\n";
+         patches[p]->Print(out);
+      }
+   }
+}
+
+void NURBSExtension::PrintCharacteristics(std::ostream &out)
+{
+   out <<
+       "NURBS Mesh entity sizes:\n"
+       "Dimension           = " << Dimension() << "\n"
+       "Order               = "; Order.Print();
+   out <<
+       "NumOfKnotVectors    = " << GetNKV() << "\n"
+       "NumOfPatches        = " << GetNP() << "\n"
+       "NumOfBdrPatches     = " << GetNBP() << "\n"
+       "NumOfVertices       = " << GetGNV() << "\n"
+       "NumOfElements       = " << GetGNE() << "\n"
+       "NumOfBdrElements    = " << GetGNBE() << "\n"
+       "NumOfDofs           = " << GetNTotalDof() << "\n"
+       "NumOfActiveVertices = " << GetNV() << "\n"
+       "NumOfActiveElems    = " << GetNE() << "\n"
+       "NumOfActiveBdrElems = " << GetNBE() << "\n"
+       "NumOfActiveDofs     = " << GetNDof() << '\n';
+   for (int i = 0; i < NumOfKnotVectors; i++)
+   {
+      out << ' ' << i + 1 << ") ";
+      knotVectors[i]->Print(out);
+   }
+   cout << endl;
 }
 
 void NURBSExtension::InitDofMap()
@@ -1499,131 +1621,6 @@ void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
 }
 
 
-NURBSExtension::NURBSExtension(Mesh *mesh_array[], int num_pieces)
-{
-   NURBSExtension *parent = mesh_array[0]->NURBSext;
-
-   if (!parent->own_topo)
-      mfem_error("NURBSExtension::NURBSExtension :\n"
-                 "  parent does not own the patch topology!");
-   patchTopo = parent->patchTopo;
-   own_topo = 1;
-   parent->own_topo = 0;
-
-   parent->edge_to_knot.Copy(edge_to_knot);
-
-   parent->GetOrders(Order);
-
-   NumOfKnotVectors = parent->GetNKV();
-   knotVectors.SetSize(NumOfKnotVectors);
-   for (int i = 0; i < NumOfKnotVectors; i++)
-   {
-      knotVectors[i] = new KnotVector(*parent->GetKnotVector(i));
-   }
-
-   GenerateOffsets();
-   CountElements();
-   CountBdrElements();
-
-   // assuming the meshes define a partitioning of all the elements
-   NumOfActiveElems = NumOfElements;
-   activeElem.SetSize(NumOfElements);
-   activeElem = true;
-
-   GenerateActiveVertices();
-   InitDofMap();
-   GenerateElementDofTable();
-   GenerateActiveBdrElems();
-   GenerateBdrElementDofTable();
-
-   weights.SetSize(GetNDof());
-   MergeWeights(mesh_array, num_pieces);
-}
-
-NURBSExtension::~NURBSExtension()
-{
-   if (patches.Size() == 0)
-   {
-      delete bel_dof;
-      delete el_dof;
-   }
-
-   for (int i = 0; i < knotVectors.Size(); i++)
-   {
-      delete knotVectors[i];
-   }
-
-   for (int i = 0; i < patches.Size(); i++)
-   {
-      delete patches[i];
-   }
-
-   if (own_topo)
-   {
-      delete patchTopo;
-   }
-}
-
-void NURBSExtension::Print(std::ostream &out) const
-{
-   patchTopo->PrintTopo(out, edge_to_knot);
-   if (patches.Size() == 0)
-   {
-      out << "\nknotvectors\n" << NumOfKnotVectors << '\n';
-      for (int i = 0; i < NumOfKnotVectors; i++)
-      {
-         knotVectors[i]->Print(out);
-      }
-
-      if (NumOfActiveElems < NumOfElements)
-      {
-         out << "\nmesh_elements\n" << NumOfActiveElems << '\n';
-         for (int i = 0; i < NumOfElements; i++)
-            if (activeElem[i])
-            {
-               out << i << '\n';
-            }
-      }
-
-      out << "\nweights\n";
-      weights.Print(out, 1);
-   }
-   else
-   {
-      out << "\npatches\n";
-      for (int p = 0; p < patches.Size(); p++)
-      {
-         out << "\n# patch " << p << "\n\n";
-         patches[p]->Print(out);
-      }
-   }
-}
-
-void NURBSExtension::PrintCharacteristics(std::ostream &out)
-{
-   out <<
-       "NURBS Mesh entity sizes:\n"
-       "Dimension           = " << Dimension() << "\n"
-       "Order               = "; Order.Print();
-   out <<
-       "NumOfKnotVectors    = " << GetNKV() << "\n"
-       "NumOfPatches        = " << GetNP() << "\n"
-       "NumOfBdrPatches     = " << GetNBP() << "\n"
-       "NumOfVertices       = " << GetGNV() << "\n"
-       "NumOfElements       = " << GetGNE() << "\n"
-       "NumOfBdrElements    = " << GetGNBE() << "\n"
-       "NumOfDofs           = " << GetNTotalDof() << "\n"
-       "NumOfActiveVertices = " << GetNV() << "\n"
-       "NumOfActiveElems    = " << GetNE() << "\n"
-       "NumOfActiveBdrElems = " << GetNBE() << "\n"
-       "NumOfActiveDofs     = " << GetNDof() << '\n';
-   for (int i = 0; i < NumOfKnotVectors; i++)
-   {
-      out << ' ' << i + 1 << ") ";
-      knotVectors[i]->Print(out);
-   }
-   cout << endl;
-}
 
 void NURBSExtension::GenerateActiveVertices()
 {
