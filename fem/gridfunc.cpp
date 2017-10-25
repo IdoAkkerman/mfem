@@ -53,19 +53,20 @@ GridFunction::GridFunction(Mesh *m, std::istream &input)
    getline(input, buff, ' '); // 'Ordering:'
    int ordering;
    input >> ordering;
- 
+
    NURBSExtension *NURBSext = NULL;
    if (m->NURBSext && dynamic_cast<NURBSFECollection *>(fec) )
    {
       input.getline(buff, bufflen, ' '); // 'NURBSext:'
-      int size;
-      input >> size;
-
-      if (size > 0)
+      int newExt;
+      input >> newExt;
+      if (newExt == 0)
       {
-         Array<int> Orders(size);
-         Orders.Load(input);
-         NURBSext = new NURBSExtension(m->NURBSext, Orders);
+         NURBSext = NULL;
+      }
+      else
+      {
+         NURBSext = new NURBSExtension(m->NURBSext, input);
       }
    }
 

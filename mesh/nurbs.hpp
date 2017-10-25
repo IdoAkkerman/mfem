@@ -204,6 +204,9 @@ protected:
 
    Array<NURBSPatch *> patches;
 
+
+
+
    inline int         KnotInd(int edge);
    inline KnotVector *KnotVec(int edge);
    inline KnotVector *KnotVec(int edge, int oedge, int *okv);
@@ -213,6 +216,9 @@ protected:
 
    void GetPatchKnotVectors   (int p, Array<KnotVector *> &kv);
    void GetBdrPatchKnotVectors(int p, Array<KnotVector *> &kv);
+
+   // constructor helper functions
+   void Init(NURBSExtension *parent, const Array<int> &Order);
 
    // periodic BC helper functions
    void InitDofMap();
@@ -232,7 +238,6 @@ protected:
    // generate the boundary mesh elements
    void Get2DBdrElementTopo(Array<Element *> &boundary);
    void Get3DBdrElementTopo(Array<Element *> &boundary);
-
 
    // FE space generation functions
    Table *GetGlobalElementDofTable();
@@ -281,10 +286,14 @@ public:
    NURBSExtension(std::istream &input);
    /** Create a NURBSExtension with elevated order by repeating the endpoints
        of the knot vectors and using uniform weights of 1. */
+   NURBSExtension(NURBSExtension *parent, std::istream &input);
    NURBSExtension(NURBSExtension *parent, int Order);
    NURBSExtension(NURBSExtension *parent, const Array<int> &Order);
    /// Construct a NURBSExtension by merging a partitioned NURBS mesh
    NURBSExtension(Mesh *mesh_array[], int num_pieces);
+
+   // Read and write
+   void Save(std::ostream &out) const;
 
    // generate connections between boundaries -- such as periodic BCs
    void ConnectBoundaries( Array<int>  &bnds0, Array<int> &bnds1);
