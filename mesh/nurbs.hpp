@@ -176,6 +176,10 @@ protected:
    Array<KnotVector *> knotVectors;
    Vector weights;
 
+   Array<int> d2d;
+   Array<int> master;
+   Array<int> slave;
+
    // global offsets, meshOffsets == meshVertexOffsets
    Array<int> v_meshOffsets;
    Array<int> e_meshOffsets;
@@ -227,6 +231,9 @@ protected:
 
 
    // FE space generation functions
+   Table *GetGlobalElementDofTable();
+   Table *Get2DGlobalElementDofTable();
+   Table *Get3DGlobalElementDofTable();
 
    // based on activeElem, count NumOfActiveDofs, generate el_dof,
    // el_to_patch, el_to_IJK, activeDof map (global-to-local)
@@ -259,8 +266,8 @@ protected:
 
    // determine activeDof, NumOfActiveDofs from the activeElem array
    void GenerateActiveDofs();
-   void Generate2DActiveDofs();
-   void Generate3DActiveDofs();
+  // void Generate2DActiveDofs();
+  // void Generate3DActiveDofs();
 
    // determine activeBdrElem, NumOfActiveBdrElems
    void GenerateActiveBdrElems();
@@ -280,8 +287,8 @@ public:
    /// Construct a NURBSExtension by merging a partitioned NURBS mesh
    NURBSExtension(Mesh *mesh_array[], int num_pieces);
 
-   NURBSExtension(NURBSExtension *parent, const Array<int> &Order_,
-                  Array<int>  &bnds0, Array<int> &bnds1);
+ //  NURBSExtension(NURBSExtension *parent, const Array<int> &Order_,
+ //                 Array<int>  &bnds0, Array<int> &bnds1);
 
    void MergeGridFunctions(GridFunction *gf_array[], int num_pieces,
                            GridFunction &merged);
@@ -359,10 +366,6 @@ class ParNURBSExtension : public NURBSExtension
 {
 private:
    int *partitioning;
-
-   Table *GetGlobalElementDofTable();
-   Table *Get2DGlobalElementDofTable();
-   Table *Get3DGlobalElementDofTable();
 
    void SetActive(int *partitioning, const Array<bool> &active_bel);
    void BuildGroups(int *partitioning, const Table &elem_dof);
