@@ -289,6 +289,7 @@ public:
 
  //  NURBSExtension(NURBSExtension *parent, const Array<int> &Order_,
  //                 Array<int>  &bnds0, Array<int> &bnds1);
+   void ConnectBoundaries( Array<int>  &bnds0, Array<int> &bnds1);
 
    void MergeGridFunctions(GridFunction *gf_array[], int num_pieces,
                            GridFunction &merged);
