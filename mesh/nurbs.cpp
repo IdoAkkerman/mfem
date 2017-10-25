@@ -1494,7 +1494,7 @@ void NURBSExtension::PrintCharacteristics(std::ostream &out)
 void NURBSExtension::InitDofMap()
 {
    d2d.SetSize(NumOfDofs);
-   for (int i = 0; i < NumOfDofs; i++) d2d[i] = i;
+   for (int i = 0; i < NumOfDofs; i++) { d2d[i] = i; }
    master.SetSize(0);
    slave.SetSize(0);
 }
@@ -1505,7 +1505,7 @@ void NURBSExtension::ConnectBoundaries(Array<int>  &bnds0, Array<int> &bnds1)
    {
       mfem_error("NURBSExtension::ConnectBoundaries() boundary lists not of equal size");
    }
-   if (bnds0.Size() == 0 )  return;
+   if (bnds0.Size() == 0 ) { return; }
 
    // Connect
    InitDofMap();
@@ -1526,8 +1526,8 @@ void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
    int idx0, idx1;
    for (int b = 0; b < GetNBP(); b++)
    {
-      if (bnd0 == patchTopo->GetBdrAttribute(b)) idx0 = b;
-      if (bnd1 == patchTopo->GetBdrAttribute(b)) idx1 = b;
+      if (bnd0 == patchTopo->GetBdrAttribute(b)) { idx0 = b; }
+      if (bnd1 == patchTopo->GetBdrAttribute(b)) { idx1 = b; }
    }
 
    NURBSPatchMap p2g0(this);
@@ -1547,16 +1547,16 @@ void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
 
 #ifdef MFEM_DEBUG
    bool compatible = true;
-   if (p2g0.nx() != p2g1.nx()) compatible = false;
-   if (p2g0.ny() != p2g1.ny()) compatible = false;
+   if (p2g0.nx() != p2g1.nx()) { compatible = false; }
+   if (p2g0.ny() != p2g1.ny()) { compatible = false; }
 
-   if (kv0[0]->GetNKS() != kv1[0]->GetNKS()) compatible = false;
-   if (kv0[1]->GetNKS() != kv1[0]->GetNKS()) compatible = false;
+   if (kv0[0]->GetNKS() != kv1[0]->GetNKS()) { compatible = false; }
+   if (kv0[1]->GetNKS() != kv1[0]->GetNKS()) { compatible = false; }
 
-   if (kv0[0]->GetOrder() != kv1[0]->GetOrder()) compatible = false;
-   if (kv0[1]->GetOrder() != kv1[1]->GetOrder()) compatible = false;
+   if (kv0[0]->GetOrder() != kv1[0]->GetOrder()) { compatible = false; }
+   if (kv0[1]->GetOrder() != kv1[1]->GetOrder()) { compatible = false; }
 
-   if (!compatible) 
+   if (!compatible)
    {
       cout<<p2g0.nx()<<" "<<p2g1.nx()<<endl;
       cout<<p2g0.ny()<<" "<<p2g1.ny()<<endl;
@@ -1568,35 +1568,35 @@ void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
       cout<<kv0[1]->GetOrder()<<" "<<kv1[1]->GetOrder()<<endl;
       mfem_error("NURBS boundaries not compatible");
    }
-#endif 
+#endif
 
-      for (int j = 0; j < nks1; j++)
+   for (int j = 0; j < nks1; j++)
+   {
+      if (kv0[1]->isElement(j))
       {
-         if (kv0[1]->isElement(j))
+         if (!kv1[1]->isElement(j)) { mfem_error("isElement does not match #1"); }
+         for (int i = 0; i < nks0; i++)
          {
-            if (!kv1[1]->isElement(j)) mfem_error("isElement does not match #1");
-            for (int i = 0; i < nks0; i++)
+            if (kv0[0]->isElement(i))
             {
-               if (kv0[0]->isElement(i))
+               if (!kv1[0]->isElement(j)) { mfem_error("isElement does not match #0"); }
+               for (int jj = 0; jj <= kv0[1]->GetOrder(); jj++)
                {
-                  if (!kv1[0]->isElement(j)) mfem_error("isElement does not match #0");
-                     for (int jj = 0; jj <= kv0[1]->GetOrder(); jj++)
-                     {
-                        int jj0 = (okv0[1] >= 0) ? (j+jj) : (ny-j-jj);
-                        int jj1 = (okv1[1] >= 0) ? (j+jj) : (ny-j-jj);
+                  int jj0 = (okv0[1] >= 0) ? (j+jj) : (ny-j-jj);
+                  int jj1 = (okv1[1] >= 0) ? (j+jj) : (ny-j-jj);
 
-                        for (int ii = 0; ii <= kv0[0]->GetOrder(); ii++)
-                        {
-                           int ii0 = (okv0[0] >= 0) ? (i+ii) : (nx-i-ii);
-                           int ii1 = (okv1[0] >= 0) ? (i+ii) : (nx-i-ii);
+                  for (int ii = 0; ii <= kv0[0]->GetOrder(); ii++)
+                  {
+                     int ii0 = (okv0[0] >= 0) ? (i+ii) : (nx-i-ii);
+                     int ii1 = (okv1[0] >= 0) ? (i+ii) : (nx-i-ii);
 
-                           d2d[p2g0(ii0,jj0)] = d2d[p2g1(ii1,jj1)];
-                        }
-                     }
+                     d2d[p2g0(ii0,jj0)] = d2d[p2g1(ii1,jj1)];
+                  }
                }
             }
          }
       }
+   }
 
    // Clean d2d
    Array<int> tmp(d2d.Size()+1);
@@ -1610,7 +1610,7 @@ void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
    int cnt = 0;
    for (int i = 0; i < tmp.Size(); i++)
    {
-      if (tmp[i] == 1) tmp[i] = cnt++;
+      if (tmp[i] == 1) { tmp[i] = cnt++; }
    }
    NumOfDofs = cnt;
 
