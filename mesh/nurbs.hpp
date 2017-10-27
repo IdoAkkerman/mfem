@@ -204,9 +204,6 @@ protected:
 
    Array<NURBSPatch *> patches;
 
-
-
-
    inline int         KnotInd(int edge);
    inline KnotVector *KnotVec(int edge);
    inline KnotVector *KnotVec(int edge, int oedge, int *okv);
@@ -366,8 +363,11 @@ public:
    void DegreeElevate(int t);
    void UniformRefinement();
    void KnotInsert(Array<KnotVector *> &kv);
-};
 
+
+   // For averaging in space
+   void GetDof2IJK(Array2D<int> &d2ijk);
+};
 
 #ifdef MFEM_USE_MPI
 class ParNURBSExtension : public NURBSExtension
