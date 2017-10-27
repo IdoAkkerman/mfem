@@ -306,6 +306,15 @@ public:
          sa[j] = (*this)[i][j];
       }
    }
+   /// Returns the total data size
+   int Size() { return array1d.Size(); }
+
+   /// Returns the data
+   inline T *GetData() { return array1d.GetData(); }
+
+   /// Returns the data
+   inline const T *GetData() const { return array1d.GetData(); }
+
    /** @brief Save the Array to the stream @a out using the format @a fmt.
        The format @a fmt can be:
 

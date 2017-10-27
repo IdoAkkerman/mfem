@@ -2852,6 +2852,37 @@ Table *NURBSExtension::Get3DGlobalElementDofTable()
    return gel_dof;
 }
 
+void NURBSExtension::GetDof2IJK(Array2D<int> &d2ijk)
+{
+
+   if (Dimension() == 2) { mfem_error("NURBSExtension::GetDof2IJK() Routine not intended for 2D.."); }
+   if (GetNP() != 1) { mfem_error("NURBSExtension::GetDof2IJK() Routine not intended for multipatch.."); }
+
+   d2ijk.SetSize(NumOfDofs,3);
+   NURBSPatchMap p2g(this);
+   KnotVector *kv[3];
+   for (int p = 0; p < GetNP(); p++)
+   {
+      p2g.SetPatchDofMap(p, kv);
+
+      //
+      for (int k = 0; k < kv[2]->GetNCP(); k++)
+      {
+         for (int j = 0; j < kv[1]->GetNCP(); j++)
+         {
+            for (int i = 0; i < kv[0]->GetNCP(); i++)
+            {
+               int d = p2g(i,j,k);
+               d = d2d[d];
+               d = activeDof[d];
+               d2ijk(d,0) = i;
+               d2ijk(d,1) = j;
+               d2ijk(d,2) = k;
+            }
+         }
+      }
+   }
+}
 
 #ifdef MFEM_USE_MPI
 ParNURBSExtension::ParNURBSExtension(MPI_Comm comm, NURBSExtension *parent,
