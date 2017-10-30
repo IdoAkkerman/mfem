@@ -219,7 +219,8 @@ protected:
 
    // periodic BC helper functions
    void InitDofMap();
-   void ConnectBoundaries(int bnd0, int bnd1);
+   void ConnectBoundaries2D(int bnd0, int bnd1);
+   void ConnectBoundaries3D(int bnd0, int bnd1);
 
    // also count the global NumOfVertices and the global NumOfDofs
    void GenerateOffsets();
@@ -363,7 +364,6 @@ public:
    void DegreeElevate(int t);
    void UniformRefinement();
    void KnotInsert(Array<KnotVector *> &kv);
-
 
    // For averaging in space
    void GetDof2IJK(Array2D<int> &d2ijk);
