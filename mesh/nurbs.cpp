@@ -1493,8 +1493,7 @@ void NURBSExtension::PrintCharacteristics(std::ostream &out)
 
 void NURBSExtension::InitDofMap()
 {
-   d2d.SetSize(NumOfDofs);
-   for (int i = 0; i < NumOfDofs; i++) { d2d[i] = i; }
+   d2d.SetSize(0);
    master.SetSize(0);
    slave.SetSize(0);
 }
@@ -1508,12 +1507,21 @@ void NURBSExtension::ConnectBoundaries(Array<int>  &bnds0, Array<int> &bnds1)
    if (bnds0.Size() == 0 ) { return; }
 
    // Connect
-   InitDofMap();
+   d2d.SetSize(NumOfDofs);
+   for (int i = 0; i < NumOfDofs; i++) { d2d[i] = i; }
    bnds0.Copy(master);
    bnds1.Copy(slave);
+
    for (int i = 0; i < master.Size(); i++)
    {
-      ConnectBoundaries(master[i], slave[i]);
+      if (Dimension() == 2)
+      {
+         ConnectBoundaries2D(master[i], slave[i]);
+      }
+      else
+      {
+         ConnectBoundaries3D(master[i], slave[i]);
+      }
    }
 
    // Finalize
@@ -1521,7 +1529,82 @@ void NURBSExtension::ConnectBoundaries(Array<int>  &bnds0, Array<int> &bnds1)
    GenerateBdrElementDofTable();
 }
 
-void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
+void NURBSExtension::ConnectBoundaries2D(int bnd0, int bnd1)
+{
+   int idx0, idx1;
+   for (int b = 0; b < GetNBP(); b++)
+   {
+      if (bnd0 == patchTopo->GetBdrAttribute(b)) { idx0 = b; }
+      if (bnd1 == patchTopo->GetBdrAttribute(b)) { idx1 = b; }
+   }
+
+   NURBSPatchMap p2g0(this);
+   NURBSPatchMap p2g1(this);
+
+   int okv0[1],okv1[1];
+   KnotVector *kv0[1],*kv1[1];
+
+   p2g0.SetBdrPatchDofMap(idx0, kv0, okv0);
+   p2g1.SetBdrPatchDofMap(idx1, kv1, okv1);
+
+   int nx = p2g0.nx();
+   int nks0 = kv0[0]->GetNKS();
+
+#ifdef MFEM_DEBUG
+   bool compatible = true;
+   if (p2g0.nx() != p2g1.nx()) { compatible = false; }
+   if (kv0[0]->GetNKS() != kv1[0]->GetNKS()) { compatible = false; }
+   if (kv0[0]->GetOrder() != kv1[0]->GetOrder()) { compatible = false; }
+
+   if (!compatible)
+   {
+      cout<<p2g0.nx()<<" "<<p2g1.nx()<<endl;
+      cout<<kv0[0]->GetNKS()<<" "<<kv1[0]->GetNKS()<<endl;
+      cout<<kv0[0]->GetOrder()<<" "<<kv1[0]->GetOrder()<<endl;
+      mfem_error("NURBS boundaries not compatible");
+   }
+#endif
+
+   for (int i = 0; i < nks0; i++)
+   {
+      if (kv0[0]->isElement(i))
+      {
+         if (!kv1[0]->isElement(i)) { mfem_error("isElement does not match"); }
+         for (int ii = 0; ii <= kv0[0]->GetOrder(); ii++)
+         {
+            int ii0 = (okv0[0] >= 0) ? (i+ii) : (nx-i-ii);
+            int ii1 = (okv1[0] >= 0) ? (i+ii) : (nx-i-ii);
+
+            d2d[p2g0(ii0)] = d2d[p2g1(ii1)];
+         }
+
+      }
+   }
+
+
+   // Clean d2d
+   Array<int> tmp(d2d.Size()+1);
+   tmp = 0;
+
+   for (int i = 0; i < d2d.Size(); i++)
+   {
+      tmp[d2d[i]] = 1;
+   }
+
+   int cnt = 0;
+   for (int i = 0; i < tmp.Size(); i++)
+   {
+      if (tmp[i] == 1) { tmp[i] = cnt++; }
+   }
+   NumOfDofs = cnt;
+
+   for (int i = 0; i < d2d.Size(); i++)
+   {
+      d2d[i] = tmp[d2d[i]];
+   }
+}
+
+void NURBSExtension::ConnectBoundaries3D(int bnd0, int bnd1)
 {
    int idx0, idx1;
    for (int b = 0; b < GetNBP(); b++)
@@ -1579,7 +1662,7 @@ void NURBSExtension::ConnectBoundaries(int bnd0, int bnd1)
          {
             if (kv0[0]->isElement(i))
             {
-               if (!kv1[0]->isElement(j)) { mfem_error("isElement does not match #0"); }
+               if (!kv1[0]->isElement(i)) { mfem_error("isElement does not match #0"); }
                for (int jj = 0; jj <= kv0[1]->GetOrder(); jj++)
                {
                   int jj0 = (okv0[1] >= 0) ? (j+jj) : (ny-j-jj);
@@ -2242,7 +2325,8 @@ void NURBSExtension::Generate2DElementDofTable()
                      {
                         for (int ii = 0; ii <= kv[0]->GetOrder(); ii++)
                         {
-                           dofs[idx] = d2d[p2g(i+ii,j+jj)];
+                           dofs[idx] = p2g(i+ii,j+jj);
+                           if (d2d.Size() > 0) { dofs[idx] = d2d[dofs[idx]]; }
                            activeDof[dofs[idx]] = 1;
                            idx++;
                         }
@@ -2302,7 +2386,8 @@ void NURBSExtension::Generate3DElementDofTable()
                               {
                                  for (int ii = 0; ii <= kv[0]->GetOrder(); ii++)
                                  {
-                                    dofs[idx] = d2d[p2g(i+ii,j+jj,k+kk)];
+                                    dofs[idx] = p2g(i+ii,j+jj,k+kk);
+                                    if (d2d.Size() > 0) { dofs[idx] = d2d[dofs[idx]]; }
                                     activeDof[dofs[idx]] = 1;
                                     idx++;
                                  }
@@ -2375,7 +2460,8 @@ void NURBSExtension::Generate2DBdrElementDofTable()
                for (int ii = 0; ii <= kv[0]->GetOrder(); ii++)
                {
                   int _ii = (okv[0] >= 0) ? (i+ii) : (nx-i-ii);
-                  dofs[idx] = d2d[p2g[_ii]];
+                  dofs[idx] = p2g[_ii];
+                  if (d2d.Size() > 0) { dofs[idx] = d2d[dofs[idx]]; }
                   idx++;
                }
                bel_to_patch[lbe] = b;
@@ -2427,7 +2513,8 @@ void NURBSExtension::Generate3DBdrElementDofTable()
                         for (int ii = 0; ii <= kv[0]->GetOrder(); ii++)
                         {
                            int _ii = (okv[0] >= 0) ? (i+ii) : (nx-i-ii);
-                           dofs[idx] = d2d[p2g(_ii,_jj)];
+                           dofs[idx] = p2g(_ii,_jj);
+                           if (d2d.Size() > 0) { dofs[idx] = d2d[dofs[idx]]; }
                            idx++;
                         }
                      }
@@ -2787,7 +2874,8 @@ Table *NURBSExtension::Get2DGlobalElementDofTable()
                   {
                      for (int ii = 0; ii <= kv[0]->GetOrder(); ii++)
                      {
-                        dofs[idx] = d2d[p2g(i+ii,j+jj)];
+                        dofs[idx] = p2g(i+ii,j+jj);
+                        if (d2d.Size() > 0) { dofs[idx] = d2d[dofs[idx]]; }
                         idx++;
                      }
                   }
@@ -2835,7 +2923,8 @@ Table *NURBSExtension::Get3DGlobalElementDofTable()
                            {
                               for (int ii = 0; ii <= kv[0]->GetOrder(); ii++)
                               {
-                                 dofs[idx] = d2d[p2g(i+ii,j+jj,k+kk)];
+                                 dofs[idx] = p2g(i+ii,j+jj,k+kk);
+                                 if (d2d.Size() > 0) { dofs[idx] = d2d[dofs[idx]]; }
                                  idx++;
                               }
                            }
@@ -2874,6 +2963,7 @@ void NURBSExtension::GetDof2IJK(Array2D<int> &d2ijk)
             {
                int d = p2g(i,j,k);
                d = d2d[d];
+               if (d2d.Size() > 0) { d = d2d[d]; }
                d = activeDof[d];
                d2ijk(d,0) = i;
                d2ijk(d,1) = j;
