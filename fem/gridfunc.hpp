@@ -438,6 +438,9 @@ public:
     */
    inline void GetElementValues(int idx, Vector &values);
 
+   /// Return all values associated with mesh element @a idx and quadrature point @2 ip in a Vector.
+   inline void GetPointValues(int idx, int ip, Vector &values);
+
    /// Return all values associated with mesh element @a idx in a DenseMatrix.
    /** The result is stored in the DenseMatrix @a values as a reference to the
        global values.
@@ -518,6 +521,12 @@ inline void QuadratureFunction::GetElementValues(int idx, Vector &values)
    const int s_offset = qspace->element_offsets[idx];
    const int sl_size = qspace->element_offsets[idx+1] - s_offset;
    values.NewDataAndSize(data + vdim*s_offset, vdim*sl_size);
+}
+
+inline void QuadratureFunction::GetPointValues(int idx, int ip, Vector &values)
+{
+   const int s_offset = qspace->element_offsets[idx] + ip;
+   values.NewDataAndSize(data + vdim*s_offset, vdim);
 }
 
 inline void QuadratureFunction::GetElementValues(int idx, DenseMatrix &values)

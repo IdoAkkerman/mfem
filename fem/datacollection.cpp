@@ -390,6 +390,14 @@ void VisItDataCollection::RegisterField(const std::string& name,
    field_info_map[name] = VisItFieldInfo("nodes", gf->VectorDim());
 }
 
+void VisItDataCollection::RegisterQField(const std::string& name,
+                                         QuadratureFunction *qf)
+{
+   DataCollection::RegisterQField(name, qf);
+   field_info_map[name] = VisItFieldInfo("quadpoints", qf->GetVDim());
+}
+
+
 void VisItDataCollection::SetMaxLevelsOfDetail(int max_levels_of_detail)
 {
    visit_max_levels_of_detail = max_levels_of_detail;
