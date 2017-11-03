@@ -188,7 +188,11 @@ public:
 
       TDFunction = (TDFunPtr)dlsym(libHandle, funName.c_str());
 
-      if (!TDFunction) { mfem_error("Function not found.\n"); }
+      if (!TDFunction) 
+      {
+          std::cout <<libName<<"  "<<funName<<std::endl;
+          mfem_error("Function not found.\n");
+      }
    };
 
    /// Evaluate coefficient
