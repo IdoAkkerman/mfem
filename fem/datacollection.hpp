@@ -274,7 +274,10 @@ public:
    virtual void SetMesh(Mesh *new_mesh);
 
    /// Add a grid function to the collection and update the root file
-   virtual void RegisterField(const std::string& field_name, GridFunction *gf);
+   virtual void RegisterField(const std::string& field_name,
+                              GridFunction *gf);
+   virtual void RegisterQField(const std::string& q_field_name,
+                               QuadratureFunction *qf);
 
    /// Set VisIt parameter: maximum levels of detail for the MultiresControl
    void SetMaxLevelsOfDetail(int max_levels_of_detail);
