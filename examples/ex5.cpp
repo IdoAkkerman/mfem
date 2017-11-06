@@ -287,7 +287,7 @@ int main(int argc, char *argv[])
       cout<<"Comparing with: "<<ref_file<<endl;
       std::ifstream in;
       in.open(ref_file, std::ifstream::in);
-      if (!in.is_open()) mfem_error("Reference file does not exist");
+      if (!in.is_open()) { mfem_error("Reference file does not exist"); }
       GridFunction ref_u(mesh,in);
       GridFunction ref_p(mesh,in);
       in.close();
@@ -302,12 +302,18 @@ int main(int argc, char *argv[])
           (ref_p.Norml2()   > eps*p.Norml2())  ||
           (ref_p.Normlinf() > eps*p.Normlinf()))
       {
-         cout<<ref_u.Norml1()  <<" "<<u.Norml1()   <<" "<<ref_u.Norml1()  /u.Norml1()  <<endl;
-         cout<<ref_u.Norml2()  <<" "<<u.Norml2()   <<" "<<ref_u.Norml2()  /u.Norml2()  <<endl;
-         cout<<ref_u.Normlinf()<<" "<<u.Normlinf() <<" "<<ref_u.Normlinf()/u.Normlinf()<<endl;
-         cout<<ref_p.Norml1()  <<" "<<p.Norml1()   <<" "<<ref_p.Norml1()  /p.Norml1()  <<endl;
-         cout<<ref_p.Norml2()  <<" "<<p.Norml2()   <<" "<<ref_p.Norml2()  /p.Norml2()  <<endl;
-         cout<<ref_p.Normlinf()<<" "<<p.Normlinf() <<" "<<ref_p.Normlinf()/p.Normlinf()<<endl;
+         cout<<ref_u.Norml1()  <<" "<<u.Norml1()   <<" "<<ref_u.Norml1()  /u.Norml1()
+             <<endl;
+         cout<<ref_u.Norml2()  <<" "<<u.Norml2()   <<" "<<ref_u.Norml2()  /u.Norml2()
+             <<endl;
+         cout<<ref_u.Normlinf()<<" "<<u.Normlinf() <<" "<<ref_u.Normlinf()/u.Normlinf()
+             <<endl;
+         cout<<ref_p.Norml1()  <<" "<<p.Norml1()   <<" "<<ref_p.Norml1()  /p.Norml1()
+             <<endl;
+         cout<<ref_p.Norml2()  <<" "<<p.Norml2()   <<" "<<ref_p.Norml2()  /p.Norml2()
+             <<endl;
+         cout<<ref_p.Normlinf()<<" "<<p.Normlinf() <<" "<<ref_p.Normlinf()/p.Normlinf()
+             <<endl;
          mfem_error("Norm exceeded");
       }
       cout<<"Passed check."<<endl;

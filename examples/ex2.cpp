@@ -261,20 +261,20 @@ int main(int argc, char *argv[])
 
    // 16. Check solution with reference
    if (strlen(ref_file) != 0)
-   {   
+   {
       cout<<"Comparing with: "<<ref_file<<endl;
       std::ifstream in;
       in.open(ref_file, std::ifstream::in);
-      if (!in.is_open()) mfem_error("Reference file does not exist");
+      if (!in.is_open()) { mfem_error("Reference file does not exist"); }
       GridFunction ref(mesh,in);
       in.close();
       ref -= x;
 
       double eps = 1e-12;
 
-      if (ref.Norml1()   > eps*x.Norml1()  ) mfem_error("L1 norm exceeded");
-      if (ref.Norml2()   > eps*x.Norml2()  ) mfem_error("L2 norm exceeded");
-      if (ref.Normlinf() > eps*x.Normlinf()) mfem_error("Linf norm exceeded");
+      if (ref.Norml1()   > eps*x.Norml1()  ) { mfem_error("L1 norm exceeded"); }
+      if (ref.Norml2()   > eps*x.Norml2()  ) { mfem_error("L2 norm exceeded"); }
+      if (ref.Normlinf() > eps*x.Normlinf()) { mfem_error("Linf norm exceeded"); }
       cout<<"Passed check."<<endl;
    }
 
