@@ -230,7 +230,7 @@ int main(int argc, char *argv[])
       mesh_ofs.precision(8);
       mesh->Print(mesh_ofs);
       ofstream sol_ofs("sol.gf");
-      sol_ofs.precision(32);
+      sol_ofs.precision(8);
       x.Save(sol_ofs);
    }
 
