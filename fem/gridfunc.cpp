@@ -54,6 +54,7 @@ GridFunction::GridFunction(Mesh *m, std::istream &input)
    int ordering;
    input >> ordering;
 
+
    NURBSExtension *NURBSext = NULL;
    if (m->NURBSext && dynamic_cast<NURBSFECollection *>(fec) )
    {

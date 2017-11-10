@@ -1704,6 +1704,7 @@ void NURBSExtension::ConnectBoundaries3D(int bnd0, int bnd1)
 }
 
 
+<<<<<<< HEAD
 NURBSExtension::NURBSExtension(Mesh *mesh_array[], int num_pieces)
 {
    NURBSExtension *parent = mesh_array[0]->NURBSext;
@@ -1829,6 +1830,8 @@ void NURBSExtension::PrintCharacteristics(std::ostream &out)
    }
    out << endl;
 }
+=======
+>>>>>>> 0f127a9518554d3c8ca1750034c69d2bbb6647d0
 
 void NURBSExtension::GenerateActiveVertices()
 {
