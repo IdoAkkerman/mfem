@@ -150,6 +150,9 @@ public:
    /** @note If MFEM_DEBUG is enabled, bounds checking is performed. */
    inline const double & operator() (int i) const;
 
+   /// Standard product with a `double`.
+   Vector operator*(double) const;
+
    /// Dot product with a `double *` array.
    double operator*(const double *) const;
 

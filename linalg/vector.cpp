@@ -87,6 +87,17 @@ const double &Vector::Elem(int i) const
    return operator()(i);
 }
 
+Vector Vector::operator*(double v) const
+{
+   Vector prod(Size());
+   for (int i = 0; i < Size(); i++)
+   {
+      prod[i] = v*data[i];
+   }
+   return prod;
+}
+
+
 double Vector::operator*(const double *v) const
 {
    int s = size;
