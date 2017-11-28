@@ -46,10 +46,14 @@ int main(int argc, char *argv[])
 {
    // 1. Parse command-line options.
    const char *mesh_file = "../data/star.mesh";
+
    const char *ref_file = "";
-   int order = 1;
+   //int order = 1;
+
    bool static_cond = false;
    bool visualization = 1;
+   Array<int> order(1);
+   order[0] = 1;
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -92,24 +96,53 @@ int main(int argc, char *argv[])
       }
    }
 
+   //      mesh->UniformRefinement();
    // 4. Define a finite element space on the mesh. Here we use continuous
    //    Lagrange finite elements of the specified order. If order < 1, we
    //    instead use an isoparametric/isogeometric space.
    FiniteElementCollection *fec;
-   if (order > 0)
+   NURBSExtension *NURBSext = NULL;
+   int own_fec = 0;
+
+   if (order[0] == -1) // Isoparametric
    {
-      fec = new H1_FECollection(order, dim);
+      if (mesh->GetNodes())
+      {
+         fec = mesh->GetNodes()->OwnFEC();
+         own_fec = 0;
+         cout << "Using isoparametric FEs: " << fec->Name() << endl;
+      }
+      else
+      {
+         cout <<"Mesh does not have FEs --> Assume order 1.\n";
+         fec = new H1_FECollection(1, dim);
+         own_fec = 1;
+      }
    }
-   else if (mesh->GetNodes())
+   else if (mesh->NURBSext && (order[0] > 0) )  // Subparametric NURBS
    {
-      fec = mesh->GetNodes()->OwnFEC();
-      cout << "Using isoparametric FEs: " << fec->Name() << endl;
+      fec = new NURBSFECollection(order[0]);
+      own_fec = 1;
+      int nkv = mesh->NURBSext->GetNKV();
+
+      if (order.Size() == 1)
+      {
+         int tmp = order[0];
+         order.SetSize(nkv);
+         order = tmp;
+      }
+      if (order.Size() != nkv ) { mfem_error("Wrong number of orders set."); }
+      NURBSext = new NURBSExtension(mesh->NURBSext, order);
    }
    else
    {
-      fec = new H1_FECollection(order = 1, dim);
+      if (order.Size() > 1) { cout <<"Wrong number of orders set, needs one.\n"; }
+      fec = new H1_FECollection(abs(order[0]), dim);
+      own_fec = 1;
    }
-   FiniteElementSpace *fespace = new FiniteElementSpace(mesh, fec);
+
+   FiniteElementSpace *fespace = new FiniteElementSpace(mesh, NURBSext, fec);
+
    cout << "Number of finite element unknowns: "
         << fespace->GetTrueVSize() << endl;
 
@@ -130,6 +163,7 @@ int main(int argc, char *argv[])
    //    the basis functions in the finite element fespace.
    LinearForm *b = new LinearForm(fespace);
    ConstantCoefficient one(1.0);
+
    b->AddDomainIntegrator(new DomainLFIntegrator(one));
    b->Assemble();
 
@@ -162,7 +196,7 @@ int main(int argc, char *argv[])
    // 10. Define a simple symmetric Gauss-Seidel preconditioner and use it to
    //     solve the system A X = B with PCG.
    GSSmoother M(A);
-   PCG(A, M, B, X, 1, 200, 1e-12, 0.0);
+   PCG(A, M, B, X, 1, 200, 1e-10, 0.0);
 #else
    // 10. If MFEM was compiled with SuiteSparse, use UMFPACK to solve the system.
    UMFPackSolver umf_solver;
@@ -228,7 +262,7 @@ int main(int argc, char *argv[])
    delete a;
    delete b;
    delete fespace;
-   if (order > 0) { delete fec; }
+   if (own_fec) { delete fec; }
    delete mesh;
 
    return 0;
