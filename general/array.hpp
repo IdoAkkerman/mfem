@@ -298,6 +298,15 @@ public:
    const T *GetRow(int i) const { return (*this)[i]; }
    T       *GetRow(int i)       { return (*this)[i]; }
 
+   /// Returns the total data size
+   int Size() { return array1d.Size(); }
+
+   /// Returns the data
+   inline T *GetData() { return array1d.GetData(); }
+
+   /// Returns the data
+   inline const T *GetData() const { return array1d.GetData(); }
+
    void Copy(Array2D &copy) const
    { copy.N = N; array1d.Copy(copy.array1d); }
 
