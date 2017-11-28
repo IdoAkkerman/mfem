@@ -16,6 +16,7 @@
 #include "../linalg/linalg.hpp"
 #include "intrules.hpp"
 #include "eltrans.hpp"
+#include <dlfcn.h>
 
 namespace mfem
 {
@@ -138,6 +139,74 @@ public:
    /// Evaluate coefficient
    virtual double Eval(ElementTransformation &T,
                        const IntegrationPoint &ip);
+};
+
+
+/// class for compounding coefficients
+class CompoundCoefficient : public Coefficient
+{
+protected:
+   double weight[2];
+   Coefficient *coeff[2];
+public:
+
+   CompoundCoefficient(double w0,   Coefficient *coeff0,
+                       double w1=1, Coefficient *coeff1 = NULL)
+   {
+      weight[0] = w0;
+      weight[1] = w1;
+
+      coeff[0] = coeff0;
+      coeff[1] = coeff1;
+   }
+
+   /// Evaluate coefficient
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip);
+
+};
+
+
+/// class for C-function coefficient in seperate library
+class LibFunctionCoefficient : public Coefficient
+{
+protected:
+   typedef double (*TDFunPtr)(double *, int, double);
+   TDFunPtr TDFunction;
+   void *libHandle;
+
+public:
+   /// Define a time-independent coefficient from a C-library
+   LibFunctionCoefficient(std::string libName, std::string funName)
+   {
+      libHandle = dlopen (libName.c_str(), RTLD_LAZY);
+      if (!libHandle)
+      {
+         std::cout <<libName<<"  "<<funName<<std::endl;
+         mfem_error("Lib not found.\n");
+      }
+
+      TDFunction = (TDFunPtr)dlsym(libHandle, funName.c_str());
+
+      if (!TDFunction) 
+      {
+          std::cout <<libName<<"  "<<funName<<std::endl;
+          mfem_error("Function not found.\n");
+      }
+   };
+
+   /// Evaluate coefficient
+   virtual double Eval(ElementTransformation &T,
+                       const IntegrationPoint &ip)
+   {
+      double x[3];
+      Vector transip(x, 3);
+      T.Transform(ip, transip);
+      return ((*TDFunction)(transip.GetData(),transip.Size(),GetTime()));
+   };
+
+   /// Destructor
+   ~LibFunctionCoefficient() { dlclose(libHandle); };
 };
 
 class GridFunction;
