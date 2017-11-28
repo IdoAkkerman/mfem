@@ -1228,6 +1228,7 @@ void HypreParMatrix::Threshold(double threshold)
    int  ierr = 0;
 
    MPI_Comm comm;
+   int num_procs;
    hypre_CSRMatrix * csr_A;
    hypre_CSRMatrix * csr_A_wo_z;
    hypre_ParCSRMatrix * parcsr_A_ptr;
@@ -1237,6 +1238,8 @@ void HypreParMatrix::Threshold(double threshold)
 
    comm = hypre_ParCSRMatrixComm(A);
 
+   MPI_Comm_size(comm, &num_procs);
+
    ierr += hypre_ParCSRMatrixGetLocalRange(A,
                                            &row_start,&row_end,
                                            &col_start,&col_end );
@@ -1244,20 +1247,13 @@ void HypreParMatrix::Threshold(double threshold)
    row_starts = hypre_ParCSRMatrixRowStarts(A);
    col_starts = hypre_ParCSRMatrixColStarts(A);
 
-   bool old_owns_row = hypre_ParCSRMatrixOwnsRowStarts(A);
-   bool old_owns_col = hypre_ParCSRMatrixOwnsColStarts(A);
-   HYPRE_Int global_num_rows = hypre_ParCSRMatrixGlobalNumRows(A);
-   HYPRE_Int global_num_cols = hypre_ParCSRMatrixGlobalNumCols(A);
-   parcsr_A_ptr = hypre_ParCSRMatrixCreate(comm, global_num_rows,
-                                           global_num_cols,
-                                           row_starts, col_starts,
-                                           0, 0, 0);
-   hypre_ParCSRMatrixOwnsRowStarts(parcsr_A_ptr) = old_owns_row;
-   hypre_ParCSRMatrixOwnsColStarts(parcsr_A_ptr) = old_owns_col;
+   parcsr_A_ptr = hypre_ParCSRMatrixCreate(comm,row_starts[num_procs],
+                                           col_starts[num_procs],row_starts,
+                                           col_starts,0,0,0);
 
    csr_A = hypre_MergeDiagAndOffd(A);
 
-   csr_A_wo_z = hypre_CSRMatrixDeleteZeros(csr_A,threshold);
+   csr_A_wo_z =  hypre_CSRMatrixDeleteZeros(csr_A,threshold);
 
    /* hypre_CSRMatrixDeleteZeros will return a NULL pointer rather than a usable
       CSR matrix if it finds no non-zeros */
@@ -1479,7 +1475,7 @@ HypreParMatrix * RAP(const HypreParMatrix *A, const HypreParMatrix *P)
       hypre_ParCSRMatrixOwnsColStarts((hypre_ParCSRMatrix*)(*P));
 
    hypre_ParCSRMatrix * rap;
-   hypre_BoomerAMGBuildCoarseOperator(*P,*A,*P,&rap);
+   hypre_BoomerAMGBuildCoarseOperatorKTS(*P,*A,*P,0,1,&rap);
    hypre_ParCSRMatrixSetNumNonzeros(rap);
    // hypre_MatvecCommPkgCreate(rap);
 
@@ -1505,7 +1501,7 @@ HypreParMatrix * RAP(const HypreParMatrix * Rt, const HypreParMatrix *A,
       hypre_ParCSRMatrixOwnsColStarts((hypre_ParCSRMatrix*)(*Rt));
 
    hypre_ParCSRMatrix * rap;
-   hypre_BoomerAMGBuildCoarseOperator(*Rt,*A,*P,&rap);
+   hypre_BoomerAMGBuildCoarseOperatorKTS(*Rt,*A,*P,0,0,&rap);
 
    hypre_ParCSRMatrixSetNumNonzeros(rap);
    // hypre_MatvecCommPkgCreate(rap);
