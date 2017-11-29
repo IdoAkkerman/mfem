@@ -1193,7 +1193,7 @@ NURBSExtension::NURBSExtension(const NURBSExtension &orig)
      activeElem(orig.activeElem),
      activeBdrElem(orig.activeBdrElem),
      activeDof(orig.activeDof),
-     patchTopo(new Mesh(orig.patchTopo)),
+     patchTopo(orig.patchTopo),
      own_topo(true),
      edge_to_knot(orig.edge_to_knot),
      knotVectors(orig.knotVectors.Size()), // knotVectors are copied in the body
