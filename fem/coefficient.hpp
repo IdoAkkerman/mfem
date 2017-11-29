@@ -188,10 +188,10 @@ public:
 
       TDFunction = (TDFunPtr)dlsym(libHandle, funName.c_str());
 
-      if (!TDFunction) 
+      if (!TDFunction)
       {
-          std::cout <<libName<<"  "<<funName<<std::endl;
-          mfem_error("Function not found.\n");
+         std::cout <<libName<<"  "<<funName<<std::endl;
+         mfem_error("Function not found.\n");
       }
    };
 
