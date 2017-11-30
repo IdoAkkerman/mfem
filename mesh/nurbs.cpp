@@ -1194,7 +1194,7 @@ NURBSExtension::NURBSExtension(const NURBSExtension &orig)
      activeBdrElem(orig.activeBdrElem),
      activeDof(orig.activeDof),
      patchTopo(orig.patchTopo),
-     own_topo(true),
+     own_topo(false),
      edge_to_knot(orig.edge_to_knot),
      knotVectors(orig.knotVectors.Size()), // knotVectors are copied in the body
      weights(orig.weights),
