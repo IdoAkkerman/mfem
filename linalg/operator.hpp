@@ -25,6 +25,9 @@ protected:
    int width;  ///< Dimension of the input / number of columns in the matrix.
 
 public:
+
+   Array<int> var_offsets;
+
    /// Construct a square Operator with given size s (default 0).
    explicit Operator(int s = 0) { height = width = s; }
 

@@ -433,6 +433,10 @@ void Mesh::ReadVTKMesh(std::istream &input, int &curved, int &read_gf)
          input >> ct;
          switch (ct)
          {
+            case 3:   // segment
+               Dim = 1;
+               elements[i] = new Segment(&cells_data[j+1]);
+               break;
             case 5:   // triangle
                Dim = 2;
                elements[i] = new Triangle(&cells_data[j+1]);

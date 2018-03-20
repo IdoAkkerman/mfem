@@ -1314,6 +1314,156 @@ void NewtonSolver::Mult(const Vector &b, Vector &x) const
    final_norm = norm;
 }
 
+void NewtonSolver2::SetOperator(const Operator &op)
+{
+   oper = &op;
+   height = op.Height();
+   width = op.Width();
+   MFEM_ASSERT(height == width, "square Operator is required.");
+
+   r.SetSize(width);
+   c.SetSize(width);
+}
+
+void NewtonSolver2::VNorm(const Vector &x, Vector &norm) const
+{
+   //oper->var_offsets.Print();
+   BlockVector   bx(x.GetData(), oper->var_offsets);
+   int nfes = oper->var_offsets.Size() - 1;
+   //cout<<nfes<<endl;
+   for (int s = 0; s < nfes; s++)
+   {
+      norm[s] = Dot(bx.GetBlock(s),bx.GetBlock(s));
+   }
+
+   double sum = 0;
+   for (int s = 0; s < nfes; s++)
+   {
+      sum += norm[s];
+      norm[s] = sqrt(norm[s]);
+//      cout << norm[s] << "  ";
+   }
+ //  cout << sqrt(sum) << "  ";
+ //  cout <<endl;
+}
+
+
+void NewtonSolver2::Mult(const Vector &b, Vector &x) const
+{
+   MFEM_ASSERT(oper != NULL, "the Operator is not set (use SetOperator).");
+   MFEM_ASSERT(prec != NULL, "the Solver is not set (use SetSolver).");
+   int nfes = oper->var_offsets.Size() - 1;
+   int it;
+   double norm0, norm, norm_goal;
+   Vector vnorm0(nfes), vnorm(nfes), vnorm_goal(nfes);
+   const bool have_b = (b.Size() == Height());
+
+   if (!iterative_mode)
+   {
+      x = 0.0;
+   }
+
+   oper->Mult(x, r);
+   if (have_b)
+   {
+      r -= b;
+   }
+
+   VNorm(r,vnorm0);
+   VNorm(r,vnorm);
+   norm0 = norm = Norm(r);
+   norm_goal = std::max(rel_tol*norm, abs_tol);
+   for (int s = 0; s < nfes; s++)
+   {
+      vnorm_goal[s] = std::max(rel_tol*vnorm[s], abs_tol);
+      vnorm0[s] = vnorm_goal[s]/rel_tol;
+   }
+
+   prec->iterative_mode = false;
+
+   // x_{i+1} = x_i - [DF(x_i)]^{-1} [F(x_i)-b]
+   for (it = 0; true; it++)
+   {
+      MFEM_ASSERT(IsFinite(norm), "norm = " << norm);
+      if (print_level >= 0)
+      {
+         mfem::out << '\n';
+         mfem::out << "Newton iteration " << setw(2) << it <<endl;
+         if (it == 0)
+         {
+            mfem::out << "  ||r||  "<< endl;
+            for (int s = 0; s < nfes; s++) mfem::out <<" " << scientific << vnorm[s] << endl;
+         }
+         else
+         {
+            mfem::out << "  ||r||  "<< "  ||r||/||r_0|| (%)"<<  endl;
+            for (int s = 0; s < nfes; s++) 
+            {
+               mfem::out <<" " << scientific<< vnorm[s] <<"  ";
+               mfem::out << fixed << setw(8) << setprecision(4) <<100*vnorm[s]/vnorm0[s] << endl;
+            }
+         }
+         mfem::out << '\n';
+      }
+/*
+      if (norm <= norm_goal)
+      {
+         converged = 1;
+         break;
+      }*/
+
+      converged = 1;
+      for (int s = 0; s < nfes; s++)
+      {
+         if (vnorm[s] > vnorm_goal[s])
+         {
+            converged = 0;
+         }
+      }
+      if (converged == 1) break;
+
+
+      if (it >= max_iter)
+      {
+         converged = 0;
+         break;
+      }
+
+      prec->SetOperator(oper->GetGradient(x));
+
+      prec->Mult(r, c);  // c = [DF(x_i)]^{-1} [F(x_i)-b]
+
+      const double c_scale = ComputeScalingFactor(x, b);
+      if (c_scale == 0.0)
+      {
+         converged = 0;
+         break;
+      }
+      add(x, -c_scale, c, x);
+
+      oper->Mult(x, r);
+      if (have_b)
+      {
+         r -= b;
+      }
+      norm = Norm(r);
+      VNorm(r,vnorm);  
+      for (int s = 0; s < nfes; s++)
+      {
+         if  ( vnorm0[s] <= abs_tol)
+         {
+            vnorm_goal[s] = std::max(rel_tol*vnorm[s], abs_tol);
+            vnorm0[s] = vnorm_goal[s]/rel_tol;
+         }
+      }
+   }
+
+   final_iter = it;
+   final_norm = norm;
+}
+
+
+
 
 int aGMRES(const Operator &A, Vector &x, const Vector &b,
            const Operator &M, int &max_iter,

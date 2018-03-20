@@ -65,12 +65,32 @@ private:
 
    static void WriteValue(const Option &opt, std::ostream &out);
 
+   void ReadFormFile(std::istream &input);
+
 public:
    OptionsParser(int _argc, char *_argv[])
       : argc(_argc), argv(_argv)
    {
       error_type = error_idx = 0;
    }
+
+   OptionsParser(const char *filename)
+   {
+      error_type = error_idx = 0;
+
+      std::ifstream input;
+      input.open(filename, std::ifstream::in);
+      if (!input.is_open()) { mfem_error("Option file does not exist"); }
+      ReadFormFile(input);
+      input.close();
+   }
+
+   OptionsParser(std::istream &input)
+   {
+      error_type = error_idx = 0;
+      ReadFormFile(input);
+   }
+
    void AddOption(bool *var, const char *enable_short_name,
                   const char *enable_long_name, const char *disable_short_name,
                   const char *disable_long_name, const char *description,

@@ -284,6 +284,42 @@ public:
    { return 1.0; }
 };
 
+/// Newton's method for solving F(x)=b for a given operator F.
+/** The method GetGradient() must be implemented for the operator F.
+    The preconditioner is used (in non-iterative mode) to evaluate
+    the action of the inverse gradient of the operator. */
+class NewtonSolver2 : public IterativeSolver
+{
+protected:
+   mutable Vector r, c;
+
+public:
+   NewtonSolver2() { }
+
+#ifdef MFEM_USE_MPI
+   NewtonSolver2(MPI_Comm _comm) : IterativeSolver(_comm) { }
+#endif
+   virtual void SetOperator(const Operator &op);
+
+   /// Set the linear solver for inverting the Jacobian.
+   /** This method is equivalent to calling SetPreconditioner(). */
+   virtual void SetSolver(Solver &solver) { prec = &solver; }
+
+   /// Solve the nonlinear system with right-hand side @a b.
+   /** If `b.Size() != Height()`, then @a b is assumed to be zero. */
+   virtual void Mult(const Vector &b, Vector &x) const;
+
+   /** @brief This method can be overloaded in derived classes to implement line
+       search algorithms. */
+   /** The base class implementation (NewtonSolver) simply returns 1. A return
+       value of 0 indicates a failure, interrupting the Newton iteration. */
+   virtual double ComputeScalingFactor(const Vector &x, const Vector &b) const
+   { return 1.0; }
+
+   void VNorm(const Vector &x, Vector &norm) const;
+};
+
+
 /** Adaptive restarted GMRES.
     m_max and m_min(=1) are the maximal and minimal restart parameters.
     m_step(=1) is the step to use for going from m_max and m_min.
