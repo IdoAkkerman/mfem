@@ -1177,7 +1177,6 @@ NURBSPatch *Revolve3D(NURBSPatch &patch, double n[], double ang, int times)
    return newpatch;
 }
 
-
 NURBSExtension::NURBSExtension(const NURBSExtension &orig)
    : mOrder(orig.mOrder), mOrders(orig.mOrders),
      NumOfKnotVectors(orig.NumOfKnotVectors),
@@ -1193,8 +1192,8 @@ NURBSExtension::NURBSExtension(const NURBSExtension &orig)
      activeElem(orig.activeElem),
      activeBdrElem(orig.activeBdrElem),
      activeDof(orig.activeDof),
-     patchTopo(orig.patchTopo),
-     own_topo(false),
+     patchTopo(new Mesh(*orig.patchTopo)),
+     own_topo(true),
      edge_to_knot(orig.edge_to_knot),
      knotVectors(orig.knotVectors.Size()), // knotVectors are copied in the body
      weights(orig.weights),
@@ -1380,8 +1379,15 @@ NURBSExtension::NURBSExtension(NURBSExtension *parent, int newOrder)
    const Array<int> &pOrders = parent->GetOrders();
    for (int i = 0; i < NumOfKnotVectors; i++)
    {
-      knotVectors[i] =
-         parent->GetKnotVector(i)->DegreeElevate(newOrder - pOrders[i]);
+      if (newOrder > pOrders[i])
+      {
+         knotVectors[i] =
+            parent->GetKnotVector(i)->DegreeElevate(newOrder - pOrders[i]);
+      }
+      else
+      {
+         knotVectors[i] = new KnotVector(*parent->GetKnotVector(i));
+      }
    }
 
    // copy some data from parent
@@ -1421,10 +1427,18 @@ NURBSExtension::NURBSExtension(NURBSExtension *parent,
    MFEM_VERIFY(mOrders.Size() == NumOfKnotVectors, "invalid newOrders array");
    knotVectors.SetSize(NumOfKnotVectors);
    const Array<int> &pOrders = parent->GetOrders();
+
    for (int i = 0; i < NumOfKnotVectors; i++)
    {
-      knotVectors[i] =
-         parent->GetKnotVector(i)->DegreeElevate(mOrders[i] - pOrders[i]);
+      if (mOrders[i] > pOrders[i])
+      {
+         knotVectors[i] =
+            parent->GetKnotVector(i)->DegreeElevate(mOrders[i] - pOrders[i]);
+      }
+      else
+      {
+         knotVectors[i] = new KnotVector(*parent->GetKnotVector(i));
+      }
    }
 
    // copy some data from parent
@@ -2992,6 +3006,7 @@ ParNURBSExtension::ParNURBSExtension(NURBSExtension *parent,
    Swap(bel_to_IJK, parent->bel_to_IJK);
 
    Swap(weights, parent->weights);
+   MFEM_VERIFY(!parent->HavePatches(), "");
 
    delete parent;
 

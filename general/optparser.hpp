@@ -14,6 +14,8 @@
 
 #include "../config/config.hpp"
 #include "array.hpp"
+#include <fstream>
+
 
 namespace mfem
 {

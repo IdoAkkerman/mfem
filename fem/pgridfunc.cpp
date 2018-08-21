@@ -67,6 +67,16 @@ ParGridFunction::ParGridFunction(ParMesh *pmesh, const GridFunction *gf,
    }
 }
 
+ParGridFunction::ParGridFunction(ParMesh *pmesh, std::istream &input)
+   : GridFunction(pmesh, input)
+{
+   // Convert the FiniteElementSpace, fes, to a ParFiniteElementSpace:
+   pfes = new ParFiniteElementSpace(pmesh, fec, fes->GetVDim(),
+                                    fes->GetOrdering());
+   delete fes;
+   fes = pfes;
+}
+
 void ParGridFunction::Update()
 {
    face_nbr_data.Destroy();
@@ -363,6 +373,28 @@ void ParGridFunction::ProjectDiscCoefficient(Coefficient &coeff, AvgType type)
    ComputeMeans(type, zones_per_vdof);
 }
 
+void ParGridFunction::ProjectDiscCoefficient(VectorCoefficient &vcoeff,
+                                             AvgType type)
+{
+   // Harmonic  (x1 ... xn) = [ (1/x1 + ... + 1/xn) / n ]^-1.
+   // Arithmetic(x1 ... xn) = (x1 + ... + xn) / n.
+
+   // Number of zones that contain a given dof.
+   Array<int> zones_per_vdof;
+   AccumulateAndCountZones(vcoeff, type, zones_per_vdof);
+
+   // Count the zones globally.
+   GroupCommunicator &gcomm = pfes->GroupComm();
+   gcomm.Reduce<int>(zones_per_vdof, GroupCommunicator::Sum);
+   gcomm.Bcast(zones_per_vdof);
+   // Accumulate for all tdofs.
+   HypreParVector *tv = this->ParallelAssemble();
+   this->Distribute(tv);
+   delete tv;
+
+   ComputeMeans(type, zones_per_vdof);
+}
+
 void ParGridFunction::Save(std::ostream &out) const
 {
    for (int i = 0; i < size; i++)
@@ -514,7 +546,7 @@ double GlobalLpNorm(const double p, double loc_norm, MPI_Comm comm)
 {
    double glob_norm;
 
-   if (p < numeric_limits<double>::infinity())
+   if (p < infinity())
    {
       // negative quadrature weights may cause the error to be negative
       if (loc_norm < 0.0)

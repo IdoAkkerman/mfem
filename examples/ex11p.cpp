@@ -57,8 +57,7 @@ int main(int argc, char *argv[])
    const char *mesh_file = "../data/star.mesh";
    int ser_ref_levels = 2;
    int par_ref_levels = 1;
-   Array<int> order(1);
-   order[0] = 0;
+   int order = 1;
    int nev = 5;
    int seed = 75;
    bool slu_solver  = false;
@@ -147,47 +146,19 @@ int main(int argc, char *argv[])
    //    use continuous Lagrange finite elements of the specified order. If
    //    order < 1, we instead use an isoparametric/isogeometric space.
    FiniteElementCollection *fec;
-   NURBSExtension *NURBSext = NULL;
-   int own_fec = 0;
-
-   if (order[0] == 0) // Isoparametric
+   if (order > 0)
    {
-      if (pmesh->GetNodes())
-      {
-         fec = pmesh->GetNodes()->OwnFEC();
-         own_fec = 0;
-         cout << "Using isoparametric FEs: " << fec->Name() << endl;
-      }
-      else
-      {
-         cout <<"Mesh does not have FEs --> Assume order 1.\n";
-         fec = new H1_FECollection(1, dim);
-         own_fec = 1;
-      }
+      fec = new H1_FECollection(order, dim);
    }
-   else if (pmesh->NURBSext && (order[0] > 0) )  // Subparametric NURBS
+   else if (pmesh->GetNodes())
    {
-      fec = new NURBSFECollection(order[0]);
-      own_fec = 1;
-      int nkv = pmesh->NURBSext->GetNKV();
-
-      if (order.Size() == 1)
-      {
-         int tmp = order[0];
-         order.SetSize(nkv);
-         order = tmp;
-      }
-      if (order.Size() != nkv ) { mfem_error("Wrong number of orders set."); }
-      NURBSext = new NURBSExtension(pmesh->NURBSext, order);
+      fec = pmesh->GetNodes()->OwnFEC();
    }
    else
    {
-      if (order.Size() > 1) { cout <<"Wrong number of orders set, needs one.\n"; }
-      fec = new H1_FECollection(abs(order[0]), dim);
-      own_fec = 1;
+      fec = new H1_FECollection(order = 1, dim);
    }
-
-   ParFiniteElementSpace *fespace = new ParFiniteElementSpace(pmesh,NURBSext,fec);
+   ParFiniteElementSpace *fespace = new ParFiniteElementSpace(pmesh, fec);
    HYPRE_Int size = fespace->GlobalTrueVSize();
    if (myid == 0)
    {
@@ -386,7 +357,7 @@ int main(int argc, char *argv[])
 #endif
 
    delete fespace;
-   if (own_fec)
+   if (order > 0)
    {
       delete fec;
    }

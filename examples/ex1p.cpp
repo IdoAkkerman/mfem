@@ -52,8 +52,7 @@ int main(int argc, char *argv[])
 
    // 2. Parse command-line options.
    const char *mesh_file = "../data/star.mesh";
-   Array<int> order(1);
-   order[0] = 1;
+   int order = 1;
    bool static_cond = false;
    bool visualization = 1;
 
@@ -119,47 +118,23 @@ int main(int argc, char *argv[])
    //    use continuous Lagrange finite elements of the specified order. If
    //    order < 1, we instead use an isoparametric/isogeometric space.
    FiniteElementCollection *fec;
-   NURBSExtension *NURBSext = NULL;
-   int own_fec = 0;
-
-   if (order[0] == -1) // Isoparametric
+   if (order > 0)
    {
-      if (pmesh->GetNodes())
+      fec = new H1_FECollection(order, dim);
+   }
+   else if (pmesh->GetNodes())
+   {
+      fec = pmesh->GetNodes()->OwnFEC();
+      if (myid == 0)
       {
-         fec = pmesh->GetNodes()->OwnFEC();
-         own_fec = 0;
          cout << "Using isoparametric FEs: " << fec->Name() << endl;
       }
-      else
-      {
-         cout <<"Mesh does not have FEs --> Assume order 1.\n";
-         fec = new H1_FECollection(1, dim);
-         own_fec = 1;
-      }
-   }
-   else if (pmesh->NURBSext && (order[0] > 0) )  // Subparametric NURBS
-   {
-      fec = new NURBSFECollection(order[0]);
-      own_fec = 1;
-      int nkv = pmesh->NURBSext->GetNKV();
-
-      if (order.Size() == 1)
-      {
-         int tmp = order[0];
-         order.SetSize(nkv);
-         order = tmp;
-      }
-      if (order.Size() != nkv ) { mfem_error("Wrong number of orders set."); }
-      NURBSext = new NURBSExtension(pmesh->NURBSext, order);
    }
    else
    {
-      if (order.Size() > 1) { cout <<"Wrong number of orders set, needs one.\n"; }
-      fec = new H1_FECollection(abs(order[0]), dim);
-      own_fec = 1;
+      fec = new H1_FECollection(order = 1, dim);
    }
-
-   ParFiniteElementSpace *fespace = new ParFiniteElementSpace(pmesh,NURBSext,fec);
+   ParFiniteElementSpace *fespace = new ParFiniteElementSpace(pmesh, fec);
    HYPRE_Int size = fespace->GlobalTrueVSize();
    if (myid == 0)
    {
@@ -255,18 +230,13 @@ int main(int argc, char *argv[])
       sol_sock << "solution\n" << *pmesh << x << flush;
    }
 
-   // 16. Save data in the VisIt format
-   VisItDataCollection visit_dc("Example1", pmesh);
-   visit_dc.RegisterField("solution", &x);
-   visit_dc.Save();
-
-   // 17. Free the used memory.
+   // 16. Free the used memory.
    delete pcg;
    delete amg;
    delete a;
    delete b;
    delete fespace;
-   if (own_fec) { delete fec; }
+   if (order > 0) { delete fec; }
    delete pmesh;
 
    MPI_Finalize();

@@ -67,7 +67,9 @@ protected:
 
    Array<Element *> elements;
    // Vertices are only at the corners of elements, where you would expect them
-   // in the lowest-order mesh.
+   // in the lowest-order mesh. In some cases, e.g. in a Mesh that defines the
+   // patch topology for a NURBS mesh (see LoadPatchTopo()) the vertices may be
+   // empty while NumOfVertices is positive.
    Array<Vertex> vertices;
    Array<Element *> boundary;
    Array<Element *> faces;
@@ -174,6 +176,11 @@ public:
    NURBSExtension *NURBSext; ///< Optional NURBS mesh extension.
    NCMesh *ncmesh;           ///< Optional non-conforming mesh extension.
 
+   // Global parameter that can be used to control the removal of unused
+   // vertices performed when reading a mesh in MFEM format. The default value
+   // (true) is set in mesh_readers.cpp.
+   static bool remove_unused_vertices;
+
 protected:
    Operation last_operation;
 
@@ -184,6 +191,7 @@ protected:
    void DeleteTables() { DestroyTables(); InitTables(); }
    void DestroyPointers(); // Delete data specifically allocated by class Mesh.
    void Destroy();         // Delete all owned data.
+   void DeleteLazyTables();
 
    Element *ReadElementWithoutAttr(std::istream &);
    static void PrintElementWithoutAttr(const Element *, std::ostream &);
@@ -217,6 +225,8 @@ protected:
        reference element at the center of the element. */
    void GetElementJacobian(int i, DenseMatrix &J);
 
+   void GetElementCenter(int i, Vector &c);
+
    void MarkForRefinement();
    void MarkTriMeshForRefinement();
    void GetEdgeOrdering(DSTable &v_to_v, Array<int> &order);
@@ -240,11 +250,14 @@ protected:
                         int *edge1, int *edge2, int *middle)
    { Bisection(i, v_to_v, edge1, edge2, middle); }
 
-   /** Bisection. Element with index i is bisected. */
+   /// Bisect a triangle: element with index @a i is bisected.
    void Bisection(int i, const DSTable &, int *, int *, int *);
 
-   /** Bisection. Boundary element with index i is bisected. */
-   void Bisection(int i, const DSTable &, int *);
+   /// Bisect a tetrahedron: element with index @a i is bisected.
+   void Bisection(int i, HashTable<Hashed2> &);
+
+   /// Bisect a boundary triangle: boundary element with index @a i is bisected.
+   void BdrBisection(int i, const HashTable<Hashed2> &);
 
    /** Uniform Refinement. Element with index i is refined uniformly. */
    void UniformRefinement(int i, const DSTable &, int *, int *, int *);
@@ -302,10 +315,6 @@ protected:
    /// Used in GetFaceElementTransformations (...)
    void GetLocalQuadToHexTransformation (IsoparametricTransformation &loc,
                                          int i);
-   /// Used in GetFaceElementTransformations (...)
-   void GetLocalFaceTransformation(int face_type, int elem_type,
-                                   IsoparametricTransformation &Transf,
-                                   int inf);
    /** Used in GetFaceElementTransformations to account for the fact that a
        slave face occupies only a portion of its master face. */
    void ApplyLocalSlaveTransformation(IsoparametricTransformation &transf,
@@ -399,7 +408,7 @@ protected:
    void InitFromNCMesh(const NCMesh &ncmesh);
 
    /// Create from a nonconforming mesh.
-   Mesh(const NCMesh &ncmesh);
+   explicit Mesh(const NCMesh &ncmesh);
 
    /// Swaps internal data with another mesh. By default, non-geometry members
    /// like 'ncmesh' and 'NURBSExt' are only swapped when 'non_geometry' is set.
@@ -557,14 +566,14 @@ public:
    /** Creates mesh by reading a file in MFEM, netgen, or VTK format. If
        generate_edges = 0 (default) edges are not generated, if 1 edges are
        generated. */
-   Mesh(const char *filename, int generate_edges = 0, int refine = 1,
-        bool fix_orientation = true);
+   explicit Mesh(const char *filename, int generate_edges = 0, int refine = 1,
+                 bool fix_orientation = true);
 
    /** Creates mesh by reading data stream in MFEM, netgen, or VTK format. If
        generate_edges = 0 (default) edges are not generated, if 1 edges are
        generated. */
-   Mesh(std::istream &input, int generate_edges = 0, int refine = 1,
-        bool fix_orientation = true);
+   explicit Mesh(std::istream &input, int generate_edges = 0, int refine = 1,
+                 bool fix_orientation = true);
 
    /// Create a disjoint mesh from the given mesh array
    Mesh(Mesh *mesh_array[], int num_pieces);
@@ -774,9 +783,18 @@ public:
    ElementTransformation * GetBdrElementTransformation(int i);
    void GetBdrElementTransformation(int i, IsoparametricTransformation *ElTr);
 
-   /** Returns the transformation defining the given face element.
-       The transformation is stored in a user-defined variable. */
+   /** @brief Returns the transformation defining the given face element in a
+       user-defined variable. */
    void GetFaceTransformation(int i, IsoparametricTransformation *FTr);
+
+   /** @brief A helper method that constructs a transformation from the
+       reference space of a face to the reference space of an element. */
+   /** The local index of the face as a face in the element and its orientation
+       are given by the input parameter @a info, as @a info = 64*loc_face_idx +
+       loc_face_orientation. */
+   void GetLocalFaceTransformation(int face_type, int elem_type,
+                                   IsoparametricTransformation &Transf,
+                                   int info);
 
    /// Returns the transformation defining the given face element
    ElementTransformation *GetFaceTransformation(int FaceNo);

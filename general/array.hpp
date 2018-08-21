@@ -17,7 +17,6 @@
 #include "globals.hpp"
 
 #include <iostream>
-#include <fstream>
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
@@ -157,7 +156,10 @@ public:
    inline int Append(const T & el);
 
    /// Append another array to this array, resize if necessary
-   inline int Append(const Array<T> &els);
+   inline int Append(const T *els, int nels);
+
+   /// Append another array to this array, resize if necessary
+   inline int Append(const Array<T> &els) { return Append(els, els.Size()); }
 
    /// Prepend an element to the array, resize if necessary
    inline int Prepend(const T &el);
@@ -171,6 +173,9 @@ public:
 
    /// Return the first index where 'el' is found; return -1 if not found
    inline int Find(const T &el) const;
+
+   /// Do bisection search for 'el' in a sorted array; return -1 if not found.
+   inline int FindSorted(const T &el) const;
 
    /// Delete the last entry
    inline void DeleteLast() { if (size > 0) { size--; } }
@@ -286,7 +291,7 @@ class Array2D;
 template <class T>
 void Swap(Array2D<T> &, Array2D<T> &);
 
-/// Two dimensional array using row-major storage
+/// Dynamic 2D array using row-major layout
 template <class T>
 class Array2D
 {
@@ -294,15 +299,15 @@ private:
    friend void Swap<T>(Array2D<T> &, Array2D<T> &);
 
    Array<T> array1d;
-   int N;
+   int M, N; // number of rows and columns
 
 public:
-   Array2D() { N = 0; }
-   Array2D(int m, int n) : array1d(m*n) { N = n; }
+   Array2D() { M = N = 0; }
+   Array2D(int m, int n) : array1d(m*n) { M = m; N = n; }
 
-   void SetSize(int m, int n) { array1d.SetSize(m*n); N = n; }
+   void SetSize(int m, int n) { array1d.SetSize(m*n); M = m; N = n; }
 
-   int NumRows() const { return array1d.Size()/N; }
+   int NumRows() const { return M; }
    int NumCols() const { return N; }
 
    inline const T &operator()(int i, int j) const;
@@ -317,13 +322,11 @@ public:
    const T *GetRow(int i) const { return (*this)[i]; }
    T       *GetRow(int i)       { return (*this)[i]; }
 
+   /// Extract a copy of the @a i-th row into the Array @a sa.
    void GetRow(int i, Array<T> &sa) const
    {
       sa.SetSize(N);
-      for (int j = 0; j < N; j++)
-      {
-         sa[j] = (*this)[i][j];
-      }
+      sa.Assign(GetRow(i));
    }
 
    /// Returns the total data size
@@ -336,53 +339,50 @@ public:
    inline const T *GetData() const { return array1d.GetData(); }
 
 
-   /** @brief Save the Array to the stream @a out using the format @a fmt.
+    /** @brief Save the Array2D to the stream @a out using the format @a fmt.
        The format @a fmt can be:
 
-          0 - write the size followed by all entries
-          1 - write only the entries
+          0 - write the number of rows and columns, followed by all entries
+          1 - write only the entries, using row-major layout
    */
-   void Save(std::ostream &out, int fmt = 0) const { array1d.Save(out, fmt); };
-
-   /** @brief Read an Array from the stream @a in using format @a fmt.
-       The format @a fmt can be:
-
-          0 - read the size then the entries
-          1 - read Size() entries
-   */
-   void Load(std::istream &in, int fmt = 0) { array1d.Load(in, fmt); };
-
-   void Load(const char *filename, int fmt = 0)
+   void Save(std::ostream &out, int fmt = 0) const
    {
-      std::ifstream in;
-      in.open(filename, std::ifstream::in);
-      if (!in.is_open())
-      {
-         std::cout<<"File "<<filename<<" does not exist."<<std::endl;
-         mfem_error();
-      }
-      array1d.Load(in, fmt);
-      in.close();
+      if (fmt == 0) { out << NumRows() << ' ' << NumCols() << '\n'; }
+      array1d.Save(out, 1);
    }
 
+   /** @brief Read an Array2D from the stream @a in using format @a fmt.
+       The format @a fmt can be:
 
-   /** @brief Set the Array size to @a new_size and read that many entries from
-       the stream @a in. */
+          0 - read the number of rows and columns, then the entries
+          1 - read NumRows() x NumCols() entries, using row-major layout
+   */
+   void Load(std::istream &in, int fmt = 0)
+   {
+      if (fmt == 0) { in >> M >> N; array1d.SetSize(M*N); }
+      array1d.Load(in, 1);
+   }
+
+   /// Read an Array2D from a file
+   void Load(const char *filename, int fmt = 0);
+
+   /** @brief Set the Array2D dimensions to @a new_size0 x @a new_size1 and read
+       that many entries from the stream @a in. */
    void Load(int new_size0,int new_size1, std::istream &in)
    { SetSize(new_size0,new_size1); Load(in, 1); }
 
    void Copy(Array2D &copy) const
-   { copy.N = N; array1d.Copy(copy.array1d); }
+   { copy.M = M; copy.N = N; array1d.Copy(copy.array1d); }
 
    inline void operator=(const T &a)
    { array1d = a; }
 
    /// Make this Array a reference to 'master'
    inline void MakeRef(const Array2D &master)
-   { N = master.N; array1d.MakeRef(master.array1d); }
+   { M = master.M; N = master.N; array1d.MakeRef(master.array1d); }
 
    /// Delete all dynamically allocated memory, reseting all dimentions to zero.
-   inline void DeleteAll() { N = 0; array1d.DeleteAll(); }
+   inline void DeleteAll() { M = 0; N = 0; array1d.DeleteAll(); }
 
    /// Prints array to stream with width elements per row
    void Print(std::ostream &out = mfem::out, int width = 4);
@@ -629,12 +629,12 @@ inline int Array<T>::Append(const T &el)
 }
 
 template <class T>
-inline int Array<T>::Append(const Array<T> & els)
+inline int Array<T>::Append(const T *els, int nels)
 {
-   int old_size = size;
+   const int old_size = size;
 
-   SetSize(size + els.Size());
-   for (int i = 0; i < els.Size(); i++)
+   SetSize(size + nels);
+   for (int i = 0; i < nels; i++)
    {
       ((T*)data)[old_size+i] = els[i];
    }
@@ -683,17 +683,26 @@ template <class T>
 inline int Array<T>::Find(const T &el) const
 {
    for (int i = 0; i < size; i++)
-      if (((T*)data)[i] == el)
-      {
-         return i;
-      }
+   {
+      if (((T*)data)[i] == el) { return i; }
+   }
    return -1;
+}
+
+template <class T>
+inline int Array<T>::FindSorted(const T &el) const
+{
+   const T *begin = (const T*) data, *end = begin + size;
+   const T* first = std::lower_bound(begin, end, el);
+   if (first == end || !(*first == el)) { return  -1; }
+   return first - begin;
 }
 
 template <class T>
 inline void Array<T>::DeleteFirst(const T &el)
 {
    for (int i = 0; i < size; i++)
+   {
       if (((T*)data)[i] == el)
       {
          for (i++; i < size; i++)
@@ -703,6 +712,7 @@ inline void Array<T>::DeleteFirst(const T &el)
          size--;
          return;
       }
+   }
 }
 
 template <class T>
