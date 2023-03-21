@@ -237,7 +237,6 @@ protected:
 
    // periodic BC helper functions
    void InitDofMap();
-   void ConnectBoundaries();
    void ConnectBoundaries2D(int bnd0, int bnd1);
    void ConnectBoundaries3D(int bnd0, int bnd1);
    int DofMap(int dof) const
@@ -325,6 +324,7 @@ public:
    NURBSExtension& operator=(const NURBSExtension&) = delete;
 
    // Generate connections between boundaries, such as periodic BCs
+   void ConnectBoundaries();
    void ConnectBoundaries(Array<int> &master, Array<int> &slave);
    const Array<int> &GetMaster() const { return  master; };
    Array<int> &GetMaster()  { return  master; };
