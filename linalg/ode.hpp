@@ -610,6 +610,7 @@ protected:
    /// Pointer to the associated TimeDependentOperator.
    SecondOrderTimeDependentOperator *f;  // f(.,.,t) : R^n x R^n --> R^n
    MemoryType mem_type;
+   Vector d2xdt2;
 
 public:
    SecondOrderODESolver() : f(NULL) { mem_type = MemoryType::HOST; }
@@ -660,6 +661,8 @@ public:
          sequence, then the ODE solver must be re-initialized by calling Init()
          between the two Step() calls. */
    virtual void Step(Vector &x, Vector &dxdt, double &t, double &dt) = 0;
+   void EulerStep(Vector &x, Vector &dxdt, double &t, double &dt);
+   void MidPointStep(Vector &x, Vector &dxdt, double &t, double &dt);
 
    /// Perform time integration from time @a t [in] to time @a tf [in].
    /** @param[in,out] x    Approximate solution.
@@ -711,8 +714,6 @@ public:
 class NewmarkSolver : public SecondOrderODESolver
 {
 private:
-   Vector d2xdt2;
-
    double beta, gamma;
    bool first;
 
@@ -753,7 +754,7 @@ public:
 class GeneralizedAlpha2Solver : public SecondOrderODESolver
 {
 protected:
-   Vector xa,va,aa,d2xdt2;
+   Vector xa,va,aa;
    double alpha_f, alpha_m, beta, gamma;
    int nstate;
 

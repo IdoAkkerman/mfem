@@ -990,6 +990,33 @@ void SecondOrderODESolver::Init(SecondOrderTimeDependentOperator &f_)
 {
    this->f = &f_;
    mem_type = GetMemoryType(f_.GetMemoryClass());
+   d2xdt2.SetSize(f->Width());
+   d2xdt2 = 0.0;
+}
+
+void SecondOrderODESolver::EulerStep(Vector &x, Vector &dxdt, double &t, double &dt)
+{
+   x.Add(dt, dxdt);
+
+   f->SetTime(t + dt);
+   f->ImplicitSolve(0.5*dt*dt, dt, x, dxdt, d2xdt2);
+
+   x   .Add(0.5*dt*dt, d2xdt2);
+   dxdt.Add(dt,    d2xdt2);
+   t += dt;
+}
+
+void SecondOrderODESolver::MidPointStep(Vector &x, Vector &dxdt, double &t, double &dt)
+{
+   x.Add(0.5*dt, dxdt);
+
+   f->SetTime(t + dt);
+   f->ImplicitSolve(0.25*dt*dt, 0.5*dt, x, dxdt, d2xdt2);
+
+   x.Add(0.5*dt, dxdt);
+   x.Add(0.5*dt*dt, d2xdt2);
+   dxdt.Add(dt, d2xdt2);
+   t += dt;
 }
 
 void NewmarkSolver::Init(SecondOrderTimeDependentOperator &f_)
@@ -1039,8 +1066,9 @@ void NewmarkSolver::Step(Vector &x, Vector &dxdt, double &t, double &dt)
    // In the first pass compute d2xdt2 directly from operator.
    if (first)
    {
-      f->Mult(x, dxdt, d2xdt2);
+      MidPointStep(x, dxdt, t, dt);
       first = false;
+      return;
    }
    f->SetTime(t + dt);
 
@@ -1074,7 +1102,6 @@ const Vector &GeneralizedAlpha2Solver::GetStateVector(int i)
                 " - Tried to get non-existent state "<<i);
    return d2xdt2;
 }
-
 
 void GeneralizedAlpha2Solver::GetStateVector(int i, Vector &state)
 {
@@ -1135,8 +1162,9 @@ void GeneralizedAlpha2Solver::Step(Vector &x, Vector &dxdt,
    // In the first pass compute d2xdt2 directly from operator.
    if (nstate == 0)
    {
-      f->Mult(x, dxdt, d2xdt2);
+      MidPointStep(x, dxdt, t, dt);
       nstate = 1;
+      return;
    }
 
    // Predict alpha levels
