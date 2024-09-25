@@ -37,6 +37,9 @@ public:
    /// Get the ith state vector - non-const version
    virtual Vector &Get(int i) = 0;
 
+   /// Get the ith state vector - with a copy
+   virtual void Get(int i, Vector &vec) const = 0;
+
    /// Set the ith state vector
    virtual void Set(int i, Vector &state) = 0;
 
@@ -44,7 +47,8 @@ public:
    virtual void Append(Vector &state) = 0;
 
    /// Virtual destructor
-   virtual ~ODEStateData() = default;
+   virtual ~ODEStateData() = default;  
+   virtual void Print(std::ostream &os = mfem::out) const =0;
 };
 
 /// An implementation of ODEStateData that stores states in an std::vector<Vector>
@@ -57,10 +61,10 @@ private:
    Array<int> idx;
 
 public:
-   ODEStateDataVector () { ss = smax = 0;};
+   ODEStateDataVector (int smax): smax(smax) { ss = 0;};
 
    /// Set the number of stages and the size of the vectors
-   void  SetSize(int stages, int vsize, MemoryType mem_type);
+   void  SetSize(int vsize, MemoryType mem_type);
 
    /// Shift the stage counter for the next timestep
    inline void ShiftStages()
@@ -81,7 +85,7 @@ public:
    inline const Vector &operator[](int i) const { return data[idx[i]]; };
 
    /// Print state data
-   void Print(std::ostream &os = mfem::out) const ;
+   void Print(std::ostream &os = mfem::out) const override;
 
    int  MaxSize() const override { return smax; };
 
@@ -89,6 +93,8 @@ public:
 
    const Vector &Get(int i) const override;
    Vector &Get(int i) override;
+
+   virtual void Get(int i, Vector &vec) const override;
 
    void Set(int i, Vector &state) override;
 
@@ -169,6 +175,9 @@ public:
       while (t < tf) { Step(x, t, dt); }
    }
 
+   /// Returns a pointer of the StateData object that manages the state vectors
+   virtual ODEStateData* GetState(){ return nullptr; };
+
    // Help info for ODESolver options
    static MFEM_EXPORT std::string ExplicitTypes;
    static MFEM_EXPORT std::string ImplicitTypes;
@@ -192,17 +201,7 @@ public:
       const int ode_solver_type);
 
    virtual ~ODESolver() { }
-};
 
-/// Abstract class for an ODESolver that has state history implemented as ODEStateData
-class ODESolverWithStates : public ODESolver
-{
-public:
-   /// Returns the StateData
-   virtual ODEStateData& GetState() = 0;
-
-   /// Returns the StateData
-   virtual const ODEStateData& GetState() const = 0;
 };
 
 
@@ -437,7 +436,7 @@ public:
 /// Generalized-alpha ODE solver from "A generalized-α method for integrating
 /// the filtered Navier-Stokes equations with a stabilized finite element
 /// method" by K.E. Jansen, C.H. Whiting and G.M. Hulbert.
-class GeneralizedAlphaSolver : public ODESolverWithStates
+class GeneralizedAlphaSolver : public ODESolver
 {
    ODEStateDataVector state;
 
@@ -450,17 +449,16 @@ protected:
    void PrintProperties(std::ostream &os = mfem::out);
 public:
 
-   GeneralizedAlphaSolver(real_t rho = 1.0) { SetRhoInf(rho); };
+   GeneralizedAlphaSolver(real_t rho = 1.0) : state(1) { SetRhoInf(rho); };
    void Init(TimeDependentOperator &f_) override;
    void Step(Vector &x, real_t &t, real_t &dt) override;
 
-   ODEStateData& GetState() override { return state; }
-   const ODEStateData& GetState() const override { return state; }
+   ODEStateData* GetState() override { return &state; }
 };
 
 
 /** An explicit Adams-Bashforth method. */
-class AdamsBashforthSolver : public ODESolverWithStates
+class AdamsBashforthSolver : public ODESolver
 {
 private:
    const real_t *a;
@@ -487,8 +485,7 @@ public:
    void Init(TimeDependentOperator &f_) override;
    void Step(Vector &x, real_t &t, real_t &dt) override;
 
-   ODEStateData& GetState() override { return state; }
-   const ODEStateData& GetState() const override { return state; }
+   ODEStateData* GetState() override { return &state; }
 };
 
 /** A 1-stage, 1st order AB method.  */
@@ -543,7 +540,7 @@ public:
 
 
 /** An implicit Adams-Moulton method. */
-class AdamsMoultonSolver : public ODESolverWithStates
+class AdamsMoultonSolver : public ODESolver
 {
 private:
    const real_t *a;
@@ -570,8 +567,7 @@ public:
    void Init(TimeDependentOperator &f_) override;
    void Step(Vector &x, real_t &t, real_t &dt) override;
 
-   ODEStateData& GetState() override { return state; }
-   const ODEStateData& GetState() const override { return state; }
+   ODEStateData* GetState() override { return &state; }
 };
 
 /** A 1-stage, 2nd order AM method. */
@@ -695,7 +691,10 @@ protected:
    ODEStateDataVector state;
 
 public:
-   SecondOrderODESolver() : f(NULL) { mem_type = MemoryType::HOST; }
+   SecondOrderODESolver(int s = 1) : f(NULL), state(s)
+   {
+      mem_type = MemoryType::HOST;
+   }
 
    /// Associate a TimeDependentOperator with the ODE solver.
    /** This method has to be called:
