@@ -2720,7 +2720,7 @@ NURBSExtension *FiniteElementSpace::StealNURBSext()
    return NURBSext;
 }
 
-void FiniteElementSpace::UpdateNURBS()
+void FiniteElementSpace::UpdateNURBS(bool build_new_VNURBSext)
 {
    MFEM_VERIFY(NURBSext, "NURBSExt not defined.");
 
@@ -2736,25 +2736,28 @@ void FiniteElementSpace::UpdateNURBS()
 
    // Depending on the element type create the appropriate extensions
    // for the individual components.
-   dynamic_cast<const NURBSFECollection *>(fec)->Reset();
-
-   if (dynamic_cast<const NURBS_HDivFECollection *>(fec))
+   if (build_new_VNURBSext)
    {
-      bool H1 = dynamic_cast<const NURBS_HDivH1FECollection *>(fec);
-      VNURBSext.SetSize(mesh->Dimension());
-      for (int d = 0; d < mesh->Dimension(); d++)
+      dynamic_cast<const NURBSFECollection *>(fec)->Reset();
+
+      if (dynamic_cast<const NURBS_HDivFECollection *>(fec))
       {
-         VNURBSext[d] = NURBSext->GetDivExtension(d, H1);
+         bool H1 = dynamic_cast<const NURBS_HDivH1FECollection *>(fec);
+         VNURBSext.SetSize(mesh->Dimension());
+         for (int d = 0; d < mesh->Dimension(); d++)
+         {
+            VNURBSext[d] = NURBSext->GetDivExtension(d, H1);
+         }
       }
-   }
 
-   if (dynamic_cast<const NURBS_HCurlFECollection *>(fec))
-   {
-      bool H1 = dynamic_cast<const NURBS_HCurlH1FECollection *>(fec);
-      VNURBSext.SetSize(mesh->Dimension());
-      for (int d = 0; d < mesh->Dimension(); d++)
+      if (dynamic_cast<const NURBS_HCurlFECollection *>(fec))
       {
-         VNURBSext[d] = NURBSext->GetCurlExtension(d,H1);
+         bool H1 = dynamic_cast<const NURBS_HCurlH1FECollection *>(fec);
+         VNURBSext.SetSize(mesh->Dimension());
+         for (int d = 0; d < mesh->Dimension(); d++)
+         {
+            VNURBSext[d] = NURBSext->GetCurlExtension(d,H1);
+         }
       }
    }
 
