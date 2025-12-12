@@ -157,6 +157,55 @@ public:
    }
 };
 
+
+
+/** @brief This class is used to express the local action of a general nonlinear
+    finite element operator. In addition it may provide the capability to
+    assemble the local gradient operator and to compute the local energy. */
+class TimeDepNonlinearFormIntegrator : public Integrator
+{
+public:
+
+   /// Perform the local action of the NonlinearFormIntegrator
+   virtual void AssembleElementVector(const FiniteElement &el,
+                                      ElementTransformation &Tr,
+                                      const Vector &elfun,
+                                      const Vector &elrate,
+                                      Vector &elvect);
+
+   /// @brief Perform the local action of the NonlinearFormIntegrator resulting
+   /// from a face integral term.
+   virtual void AssembleFaceVector(const FiniteElement &el1,
+                                   const FiniteElement &el2,
+                                   FaceElementTransformations &Tr,
+                                   const Vector &elfun,
+                                   const Vector &elrate,
+                                   Vector &elvect);
+
+   /// Assemble the local gradient matrix
+   virtual void AssembleElementGrad(const FiniteElement &el,
+                                    ElementTransformation &Tr,
+                                    const Vector &elfun,
+                                    const Vector &elrate,
+                                    DenseMatrix &elmat);
+
+   /// @brief Assemble the local action of the gradient of the
+   /// NonlinearFormIntegrator resulting from a face integral term.
+   virtual void AssembleFaceGrad(const FiniteElement &el1,
+                                 const FiniteElement &el2,
+                                 FaceElementTransformations &Tr,
+                                 const Vector &elfun,
+                                 const Vector &elrate,
+                                 DenseMatrix &elmat);
+
+   /// Compute the local energy
+   virtual real_t GetElementEnergy(const FiniteElement &el,
+                                   ElementTransformation &Tr,
+                                   const Vector &elfun,
+                                   const Vector &elrate);
+};
+
+
 /** The abstract base class BlockNonlinearFormIntegrator is
     a generalization of the NonlinearFormIntegrator class suitable
     for block state vectors. */
@@ -194,6 +243,51 @@ public:
 
    virtual ~BlockNonlinearFormIntegrator() { }
 };
+
+
+/** The abstract base class BlockNonlinearFormIntegrator is
+    a generalization of the NonlinearFormIntegrator class suitable
+    for block state vectors. */
+class BlockTimeDepNonlinearFormIntegrator
+{
+public:
+   /// Compute the local energy
+   virtual real_t GetElementEnergy(const Array<const FiniteElement *>&el,
+                                   ElementTransformation &Tr,
+                                   const Array<const Vector *>&elfun,
+                                   const Array<const Vector *> &elrate);
+
+   /// Perform the local action of the BlockNonlinearFormIntegrator
+   virtual void AssembleElementVector(const Array<const FiniteElement *> &el,
+                                      ElementTransformation &Tr,
+                                      const Array<const Vector *> &elfun,
+                                      const Array<const Vector *> &elrate,
+                                      const Array<Vector *> &elvec);
+
+   virtual void AssembleFaceVector(const Array<const FiniteElement *> &el1,
+                                   const Array<const FiniteElement *> &el2,
+                                   FaceElementTransformations &Tr,
+                                   const Array<const Vector *> &elfun,
+                                   const Array<const Vector *> &elrate,
+                                   const Array<Vector *> &elvect);
+
+   /// Assemble the local gradient matrix
+   virtual void AssembleElementGrad(const Array<const FiniteElement*> &el,
+                                    ElementTransformation &Tr,
+                                    const Array<const Vector *> &elfun,
+                                    const Array<const Vector *> &elrate,
+                                    const Array2D<DenseMatrix *> &elmats);
+
+   virtual void AssembleFaceGrad(const Array<const FiniteElement *>&el1,
+                                 const Array<const FiniteElement *>&el2,
+                                 FaceElementTransformations &Tr,
+                                 const Array<const Vector *> &elfun,
+                                 const Array<const Vector *> &elrate,
+                                 const Array2D<DenseMatrix *> &elmats);
+
+   virtual ~BlockTimeDepNonlinearFormIntegrator() { }
+};
+
 
 
 /// Abstract class for hyperelastic models
