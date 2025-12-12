@@ -164,6 +164,9 @@ public:
     assemble the local gradient operator and to compute the local energy. */
 class TimeDepNonlinearFormIntegrator : public Integrator
 {
+protected:
+   real_t dt;
+
 public:
 
    /// Perform the local action of the NonlinearFormIntegrator
@@ -203,6 +206,14 @@ public:
                                    ElementTransformation &Tr,
                                    const Vector &elfun,
                                    const Vector &elrate);
+
+   /// Set the timestep to use during integration
+   void SetTimeStep(const real_t &dt_) { dt = dt_; }
+
+   /// Set the timestep to use during integration
+   real_t GetTimeStep() const { return dt; } ;
+
+   virtual ~TimeDepNonlinearFormIntegrator() { }
 };
 
 
@@ -250,6 +261,9 @@ public:
     for block state vectors. */
 class BlockTimeDepNonlinearFormIntegrator
 {
+protected:
+   real_t dt;
+
 public:
    /// Compute the local energy
    virtual real_t GetElementEnergy(const Array<const FiniteElement *>&el,
@@ -284,6 +298,12 @@ public:
                                  const Array<const Vector *> &elfun,
                                  const Array<const Vector *> &elrate,
                                  const Array2D<DenseMatrix *> &elmats);
+
+   /// Set the timestep to use during integration
+   void SetTimeStep(const real_t &dt_) { dt = dt_; }
+
+   /// Set the timestep to use during integration
+   real_t GetTimeStep() const { return dt; };
 
    virtual ~BlockTimeDepNonlinearFormIntegrator() { }
 };
@@ -475,7 +495,7 @@ class VectorConvectionNLFIntegrator : public NonlinearFormIntegrator
 {
 private:
    Coefficient *Q{};
-   DenseMatrix dshape, dshapex, EF, gradEF, ELV, elmat_comp;
+   DenseMatrix dshape, dshapex, EF, gradEF, ELV, elmat_comp, elmat_mass;
    Vector shape;
    // PA extension
    Vector pa_data;
@@ -511,6 +531,67 @@ public:
 
    void AddMultMF(const Vector &x, Vector &y) const override;
 
+
+protected:
+   const IntegrationRule* GetDefaultIntegrationRule(
+      const FiniteElement& trial_fe,
+      const FiniteElement& test_fe,
+      const ElementTransformation& trans) const override
+   {
+      return &GetRule(test_fe, trans);
+   }
+};
+
+
+class StabilizedVectorConvectionNLFIntegrator
+   : public TimeDepNonlinearFormIntegrator
+{
+public:
+   typedef std::function<real_t(const DenseMatrix& Gij,
+                                const real_t& dt,
+                                const Vector& u,
+                                const Vector& dudt,
+                                const DenseMatrix& dudx,
+                                const Vector& res)> tau_fun_type;
+
+   typedef tau_fun_type kappa_fun_type;
+
+   typedef std::function<real_t(const DenseMatrix& Gij,
+                                const real_t& dt,
+                                const Vector& u,
+                                const Vector& dudt,
+                                const DenseMatrix& dudx,
+                                const Vector& res,
+                                DenseMatrix& Ka)> kappa_mat_fun_type;
+
+private:
+   Coefficient *Q{};
+   DenseMatrix dshape, Ka, dshape_Ka, EF, dEF, dudx, ELV, elmat_comp, elmat_mass;
+   Vector shape, test, trail;
+
+   tau_fun_type *tau_fun = nullptr;
+   kappa_fun_type *kappa_fun = nullptr;
+   kappa_mat_fun_type *kappa_mat_fun = nullptr;
+
+public:
+   StabilizedVectorConvectionNLFIntegrator(Coefficient &q): Q(&q) { }
+
+   StabilizedVectorConvectionNLFIntegrator() = default;
+
+   static const IntegrationRule &GetRule(const FiniteElement &fe,
+                                         const ElementTransformation &T);
+
+   void AssembleElementVector(const FiniteElement &el,
+                              ElementTransformation &trans,
+                              const Vector &elfun,
+                              const Vector &elrate,
+                              Vector &elvect) override;
+
+   void AssembleElementGrad(const FiniteElement &el,
+                            ElementTransformation &trans,
+                            const Vector &elfun,
+                            const Vector &elrate,
+                            DenseMatrix &elmat) override;
 
 protected:
    const IntegrationRule* GetDefaultIntegrationRule(
