@@ -162,6 +162,12 @@ public:
    /// Matrix vector multiplication.
    void Mult(const Vector &x, Vector &y) const override;
 
+   /// Returns x.Ax
+   real_t Mult(const Vector &x) const;
+
+   /// Returns x.Ay
+   real_t Mult(const Vector &x, const Vector &y) const;
+
    /// Absolute-value matrix vector multiplication.
    void AbsMult(const Vector &x, Vector &y) const override;
 

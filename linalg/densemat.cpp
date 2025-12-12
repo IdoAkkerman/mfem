@@ -132,6 +132,24 @@ void DenseMatrix::Mult(const Vector &x, Vector &y) const
    Mult(x.HostRead(), y.HostWrite());
 }
 
+real_t DenseMatrix::Mult(const Vector &x) const
+{
+   Vector tmp(height);
+
+   Mult(x, tmp);
+
+   return tmp*x;
+}
+
+real_t DenseMatrix::Mult(const Vector &x, const Vector &y) const
+{
+   Vector tmp(height);
+
+   Mult(x, tmp);
+
+   return tmp*y;
+}
+
 void DenseMatrix::AbsMult(const Vector &x, Vector &y) const
 {
    MFEM_ASSERT(height == y.Size() && width == x.Size(),
