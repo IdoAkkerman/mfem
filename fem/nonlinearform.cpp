@@ -3000,4 +3000,23 @@ BlockTimeDepNonlinearForm::~BlockTimeDepNonlinearForm()
    }
 }
 
+
+// Evolution Constructor
+Evolution::Evolution(TimeDepNonlinearForm &form_,
+                     IterativeSolver &solver_)
+   : TimeDependentOperator(form_.Width(), 0.0, IMPLICIT),
+     form(form_), solver(solver_)
+{
+   solver.SetOperator(form);
+}
+
+// Solve time dependent problem
+void Evolution::Solve(const real_t dt, const Vector &u0,
+                      Vector &dudt) const
+{
+   //const_cast<Evolution *>(this)->form.SetTimeAndSolution(t, dt, u0);
+   Vector zero;
+   solver.Mult(zero, dudt);
+}
+
 }

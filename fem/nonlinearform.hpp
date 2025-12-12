@@ -605,6 +605,38 @@ public:
    virtual ~BlockTimeDepNonlinearForm();
 };
 
+
+class Evolution : public TimeDependentOperator
+{
+private:
+   TimeDepNonlinearForm &form;
+   IterativeSolver &solver;
+
+   void Solve(const real_t dt,
+              const Vector &x,
+              Vector &k) const;
+public:
+   /// Constructor
+   Evolution(TimeDepNonlinearForm &form,
+             IterativeSolver &solver);
+
+   /// Solve time dependent problem
+   void ImplicitSolve(const real_t dt,
+                      const Vector &x,
+                      Vector &k) override
+   {
+      //form.ResetGradient();
+      Solve(dt,x,k);
+   };
+
+   /// Stub for explicit solve of time dependent problem
+   void Mult(const Vector &x, Vector &k) const override
+   { Solve(0.0,x,k); };   // Creates errors for tau definition! TODO
+
+   /// Destructor
+   ~Evolution() {}
+};
+
 }
 
 #endif
