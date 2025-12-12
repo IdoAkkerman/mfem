@@ -113,6 +113,48 @@ real_t NonlinearFormIntegrator::GetElementEnergy(
    return 0.0;
 }
 
+void TimeDepNonlinearFormIntegrator::AssembleElementVector(
+   const FiniteElement &el, ElementTransformation &Tr,
+   const Vector &elfun, const Vector &elrate, Vector &elvect)
+{
+   mfem_error("TimeDepNonlinearFormIntegrator::AssembleElementVector"
+              " is not overloaded!");
+}
+
+void TimeDepNonlinearFormIntegrator::AssembleFaceVector(
+   const FiniteElement &el1, const FiniteElement &el2,
+   FaceElementTransformations &Tr, const Vector &elfun,
+   const Vector &elrate, Vector &elvect)
+{
+   mfem_error("TimeDepNonlinearFormIntegrator::AssembleFaceVector"
+              " is not overloaded!");
+}
+
+void TimeDepNonlinearFormIntegrator::AssembleElementGrad(
+   const FiniteElement &el, ElementTransformation &Tr,
+   const Vector &elfun, const Vector &elrate, DenseMatrix &elmat)
+{
+   mfem_error("TimeDepNonlinearFormIntegrator::AssembleElementGrad"
+              " is not overloaded!");
+}
+
+void TimeDepNonlinearFormIntegrator::AssembleFaceGrad(
+   const FiniteElement &el1, const FiniteElement &el2,
+   FaceElementTransformations &Tr, const Vector &elfun, const Vector &elrate,
+   DenseMatrix &elmat)
+{
+   mfem_error("TimeDepNonlinearFormIntegrator::AssembleFaceGrad"
+              " is not overloaded!");
+}
+
+real_t TimeDepNonlinearFormIntegrator::GetElementEnergy(
+   const FiniteElement &el, ElementTransformation &Tr,
+   const Vector &elfun, const Vector &elrate)
+{
+   mfem_error("TimeDepNonlinearFormIntegrator::GetElementEnergy"
+              " is not overloaded!");
+   return 0.0;
+}
 
 void BlockNonlinearFormIntegrator::AssembleElementVector(
    const Array<const FiniteElement *> &el,
@@ -166,6 +208,62 @@ real_t BlockNonlinearFormIntegrator::GetElementEnergy(
    return 0.0;
 }
 
+void BlockTimeDepNonlinearFormIntegrator::AssembleElementVector(
+   const Array<const FiniteElement *> &el,
+   ElementTransformation &Tr,
+   const Array<const Vector *> &elfun,
+   const Array<const Vector *> &elrate,
+   const Array<Vector *> &elvec)
+{
+   mfem_error("BlockTimeDepNonlinearFormIntegrator::AssembleElementVector"
+              " is not overloaded!");
+}
+
+void BlockTimeDepNonlinearFormIntegrator::AssembleFaceVector(
+   const Array<const FiniteElement *> &el1,
+   const Array<const FiniteElement *> &el2,
+   FaceElementTransformations &Tr,
+   const Array<const Vector *> &elfun,
+   const Array<const Vector *> &elrate,
+   const Array<Vector *> &elvect)
+{
+   mfem_error("BlockTimeDepNonlinearFormIntegrator::AssembleFaceVector"
+              " is not overloaded!");
+}
+
+void BlockTimeDepNonlinearFormIntegrator::AssembleElementGrad(
+   const Array<const FiniteElement*> &el,
+   ElementTransformation &Tr,
+   const Array<const Vector *> &elfun,
+   const Array<const Vector *> &elrate,
+   const Array2D<DenseMatrix *> &elmats)
+{
+   mfem_error("BlockTimeDepNonlinearFormIntegrator::AssembleElementGrad"
+              " is not overloaded!");
+}
+
+void BlockTimeDepNonlinearFormIntegrator::AssembleFaceGrad(
+   const Array<const FiniteElement *>&el1,
+   const Array<const FiniteElement *>&el2,
+   FaceElementTransformations &Tr,
+   const Array<const Vector *> &elfun,
+   const Array<const Vector *> &elrate,
+   const Array2D<DenseMatrix *> &elmats)
+{
+   mfem_error("BlockTimeDepNonlinearFormIntegrator::AssembleFaceGrad"
+              " is not overloaded!");
+}
+
+real_t BlockTimeDepNonlinearFormIntegrator::GetElementEnergy(
+   const Array<const FiniteElement *>&el,
+   ElementTransformation &Tr,
+   const Array<const Vector *>&elfun,
+   const Array<const Vector *> &elrate)
+{
+   mfem_error("BlockTimeDepNonlinearFormIntegrator::GetElementEnergy"
+              " is not overloaded!");
+   return 0.0;
+}
 
 real_t InverseHarmonicModel::EvalW(const DenseMatrix &J) const
 {
