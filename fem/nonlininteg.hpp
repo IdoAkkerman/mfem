@@ -552,9 +552,9 @@ public:
                                 const Vector& u,
                                 const Vector& dudt,
                                 const DenseMatrix& dudx,
-                                const Vector& res)> tau_fun_type;
+                                const Vector& res)> TauFunc_t;
 
-   typedef tau_fun_type kappa_fun_type;
+   typedef TauFunc_t KappaFunc_t;
 
    typedef std::function<real_t(const DenseMatrix& Gij,
                                 const real_t& dt,
@@ -562,19 +562,24 @@ public:
                                 const Vector& dudt,
                                 const DenseMatrix& dudx,
                                 const Vector& res,
-                                DenseMatrix& Ka)> kappa_mat_fun_type;
+                                DenseMatrix& Ka)> KappaMatFunc_t;
 
 private:
-   Coefficient *Q{};
    DenseMatrix dshape, Ka, dshape_Ka, EF, dEF, dudx, ELV, elmat_comp, elmat_mass;
    Vector shape, test, trail;
 
-   tau_fun_type *tau_fun = nullptr;
-   kappa_fun_type *kappa_fun = nullptr;
-   kappa_mat_fun_type *kappa_mat_fun = nullptr;
+   TauFunc_t *tau_fun = nullptr;
+   KappaFunc_t *kappa_fun = nullptr;
+   KappaMatFunc_t *kappa_mat_fun = nullptr;
 
 public:
-   StabilizedVectorConvectionNLFIntegrator(Coefficient &q): Q(&q) { }
+   StabilizedVectorConvectionNLFIntegrator(TauFunc_t *tau,
+                                           KappaFunc_t*kappa = nullptr)
+      : tau_fun(tau), kappa_fun(kappa) { }
+
+   StabilizedVectorConvectionNLFIntegrator(TauFunc_t *tau,
+                                           KappaMatFunc_t *kappa)
+      : tau_fun(tau), kappa_mat_fun(kappa) { }
 
    StabilizedVectorConvectionNLFIntegrator() = default;
 
