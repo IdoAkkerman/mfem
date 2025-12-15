@@ -97,8 +97,21 @@ real_t Kdc (const DenseMatrix& Gij,
             const DenseMatrix& dudx,
             const Vector& res)
 {
-   return 0.0;
+   return 0.1*res.Norml2()/(sqrt(Gij.Trace()*dudx.FNorm2()) + 1e-10);
 }
+
+void Kdc2 (const DenseMatrix& Gij,
+           const real_t& dt,
+           const Vector& u,
+           const Vector& dudt,
+           const DenseMatrix& dudx,
+           const Vector& res,
+           DenseMatrix& Ka)
+{
+   Ka = Gij;
+   Ka *= 0.1*res.Norml2()/(dudx.FNorm2()) + 1e-10);
+}
+
 
 //
 int main(int argc, char *argv[])
@@ -127,7 +140,7 @@ int main(int argc, char *argv[])
                   "Order (degree) of the finite elements.");
 
    // Time integration parameters
-   int ode_solver_type = 4;
+   int ode_solver_type = 32;
    real_t t_final = 10.0;
    real_t dt = 0.01;
    args.AddOption(&ode_solver_type, "-s", "--ode-solver",
@@ -237,17 +250,17 @@ int main(int argc, char *argv[])
       if (binary)
       {
 #ifdef MFEM_USE_SIDRE
-         dc = new SidreDataCollection("Example50", &mesh);
+         dc = new SidreDataCollection("Example51", &mesh);
 #else
          MFEM_ABORT("Must build with MFEM_USE_SIDRE=YES for binary output.");
 #endif
       }
       else
       {
-         dc = new VisItDataCollection("Example50", &mesh);
+         dc = new VisItDataCollection("Example51", &mesh);
          dc->SetPrecision(precision);
       }
-      dc->SetPrefixPath("Example50");
+      dc->SetPrefixPath("Example51");
       dc->RegisterField("solution", &u);
       dc->SetCycle(0);
       dc->SetTime(0.0);
@@ -257,7 +270,7 @@ int main(int argc, char *argv[])
    ParaViewDataCollection *pd = NULL;
    if (paraview)
    {
-      pd = new ParaViewDataCollection("Example50", &mesh);
+      pd = new ParaViewDataCollection("Example51", &mesh);
       pd->SetPrefixPath("ParaView");
       pd->RegisterField("solution", &u);
       pd->SetLevelsOfDetail(order);
@@ -299,10 +312,9 @@ int main(int argc, char *argv[])
    kdc = Kdc;
 
    TimeDepNonlinearForm form(&fes);
-   form.AddTimeDepDomainIntegrator(new StabilizedVectorConvectionNLFIntegrator());
-   //                                      &tau, &kdc));
-
-
+   //form.AddTimeDepDomainIntegrator(new StabilizedVectorConvectionNLFIntegrator(&tau));
+   form.AddTimeDepDomainIntegrator(new StabilizedVectorConvectionNLFIntegrator(
+                                      &tau, &kdc));
    // 8. Define the time-dependent evolution operator describing the ODE
    //    right-hand side, and perform time-integration (looping over the time
    //    iterations, ti, with a time-step dt).
@@ -312,8 +324,6 @@ int main(int argc, char *argv[])
    gmres.SetAbsTol(1e-12);
    gmres.SetMaxIter(GMRES_MaxIter);
    gmres.SetPrintLevel(-1);
-   //j_gmres.SetMonitor(j_monitor);
-   //j_gmres.SetPreconditioner(jac_prec);
 
    // Set up the Newton solver
    NewtonSolver newton_solver;
@@ -331,20 +341,11 @@ int main(int argc, char *argv[])
    ode_solver->Init(adv);
 
    bool done = false;
-   Vector u00[99];
-   u00[0] = u;
    for (int ti = 0; !done; )
    {
       real_t dt_real = min(dt, t_final - t);
-      //u.Print();
       ode_solver->Step(u, t, dt_real);
-      //u.Print();
       ti++;
-      u00[ti] = u;
-      Vector df;
-      df = u00[ti];
-      df -= u00[ti-1];
-      cout << df.Norml2() << endl;
       done = (t >= t_final - 1e-8*dt);
 
       if (done || ti % vis_steps == 0)
