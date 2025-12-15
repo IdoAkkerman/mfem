@@ -981,6 +981,7 @@ void StabilizedVectorConvectionNLFIntegrator::AssembleElementVector(
    Vector u(dim), dudt(dim), res(dim);
 
    Ka.SetSize(kappa_mat_fun ? dim : 0);
+   mat1.SetSize(kappa_mat_fun ? dim : 0);
 
    const IntegrationRule *ir = GetIntegrationRule(el, T);
    ELV = 0.0;
@@ -1009,7 +1010,7 @@ void StabilizedVectorConvectionNLFIntegrator::AssembleElementVector(
       test = shape;
       if (tau_fun)
       {
-         dshape.AddMult_a((*tau_fun)(T.Metric(), dt, u, dudt, dudx, res), u, test);
+         dshape.AddMult_a((*tau_fun)(T, dt, u, dudt, dudx, res), u, test);
       }
 
       // Add Galerkin and Petrov-Galerkin terms to the element vector
@@ -1018,16 +1019,16 @@ void StabilizedVectorConvectionNLFIntegrator::AssembleElementVector(
       // Add scalar artificial diffusion to the element vector
       if (kappa_fun)
       {
-         AddMult_a_ABt(w*(*kappa_fun)(T.Metric(), dt, u, dudt, dudx, res),
+         AddMult_a_ABt(w*(*kappa_fun)(T, dt, u, dudt, dudx, res),
                        dshape, dudx, ELV);
       }
 
       // Add matrix artificial diffusion to the element vector
       if (kappa_mat_fun)
       {
-         (*kappa_mat_fun)(T.Metric(), dt, u, dudt, dudx, res, Ka);
-         //  Ka.Mult(dudx, res);  // Override res --> no longer the residual anymores
-         //  dshape.AddMult_a(w, res, elvect);
+         (*kappa_mat_fun)(T, dt, u, dudt, dudx, res, Ka);
+         Mult(Ka, dudx, mat1);
+         AddMult_a_ABt(w, dshape, mat1, ELV);
       }
    }
 }
@@ -1088,7 +1089,7 @@ void StabilizedVectorConvectionNLFIntegrator::AssembleElementGrad(
       test = shape;
       if (tau_fun)
       {
-         dshape.AddMult_a((*tau_fun)(T.Metric(), dt, u, dudt, dudx, res), u, test);
+         dshape.AddMult_a((*tau_fun)(T, dt, u, dudt, dudx, res), u, test);
       }
 
       // Derivative of trail space -- acceleration and convection
@@ -1099,41 +1100,41 @@ void StabilizedVectorConvectionNLFIntegrator::AssembleElementGrad(
       AddMult_a_VWt(w, test, trail, elmat_comp);
 
       // Compute mass matrix
-      /*  MultVWt(test, trail, elmat_mass);
+      /*MultVWt(test, trail, elmat_mass);
 
-        for (int ii = 0; ii < dim; ii++)
-        {
-           for (int jj = 0; jj < dim; jj++)
-           {
-              elmat.AddMatrix(w*dt*dudx(ii, jj)*res[jj], elmat_mass, ii * nd, jj * nd);
-           }
-        }
-
-         if (tau_fun)
+      for (int ii = 0; ii < dim; ii++)
+      {
+         for (int jj = 0; jj < dim; jj++)
          {
-            real_t tau = (*tau_fun)(T.Metric(), dt, u, dudt, dudx, res);
-            for (int ii = 0; ii < dim; ii++)
+            elmat.AddMatrix(w*dt*dudx(ii, jj)*res[jj], elmat_mass, ii * nd, jj * nd);
+         }
+      }
+
+      if (tau_fun)
+      {
+         real_t tau = (*tau_fun)(T, dt, u, dudt, dudx, res);
+         for (int ii = 0; ii < dim; ii++)
+         {
+            dshape.GetColumn(ii,  test);
+            MultVWt(test, shape, elmat_mass);
+            for (int jj = 0; jj < dim; jj++)
             {
-               dshape.GetColumn(ii,  test);
-               MultVWt(test, shape, elmat_mass);
-               for (int jj = 0; jj < dim; jj++)
-               {
-                  elmat.AddMatrix(dt*w*tau*res(jj), elmat_mass, ii * nd, jj * nd);
-               }
+               elmat.AddMatrix(dt*w*tau*res(jj), elmat_mass, ii * nd, jj * nd);
             }
-         }*/
+         }
+      }*/
 
       // Add scalar artificial diffusion to the element vector
       if (kappa_fun)
       {
-         AddMult_a_AAt(w*dt*(*kappa_fun)(T.Metric(), dt, u, dudt, dudx, res),
+         AddMult_a_AAt(w*dt*(*kappa_fun)(T, dt, u, dudt, dudx, res),
                        dshape, elmat_comp);
       }
 
       // Add matrix artificial diffusion to the element vector
       if (kappa_mat_fun)
       {
-         (*kappa_mat_fun)(T.Metric(), dt, u, dudt, dudx, res, Ka);
+         (*kappa_mat_fun)(T, dt, u, dudt, dudx, res, Ka);
          Ka *= w*dt;
          Mult(dshape, Ka, dshape_Ka);
          AddMultABt(dshape, dshape_Ka, elmat_comp);
@@ -1321,7 +1322,7 @@ void StabilizedCDRIntegrator::AssembleElementVector(
       test = shape;
       if (tau_fun)
       {
-         dshape.AddMult_a((*tau_fun)(T.Metric(), dt, a, dudt, dudx, res), a, test);
+         dshape.AddMult_a((*tau_fun)(T, dt, a, dudt, dudx, res), a, test);
       }
 
       // Add Galerkin and Petrov-Galerkin terms to the element vector
@@ -1330,7 +1331,7 @@ void StabilizedCDRIntegrator::AssembleElementVector(
       // Add scalar artificial diffusion
       if (kappa_fun)
       {
-         mu +=(*kappa_fun)(T.Metric(), dt, a, dudt, dudx, res);
+         mu +=(*kappa_fun)(T, dt, a, dudt, dudx, res);
       }
 
       // Add physical and scalar artificial diffusion to the element vector
@@ -1339,7 +1340,7 @@ void StabilizedCDRIntegrator::AssembleElementVector(
       // Add matrix artificial diffusion to the element vector
       if (kappa_mat_fun)
       {
-         (*kappa_mat_fun)(T.Metric(), dt, a, dudt, dudx, res, Ka);
+         (*kappa_mat_fun)(T, dt, a, dudt, dudx, res, Ka);
          Ka.Mult(dudx, a);  // Override a
          dshape.AddMult_a(w, a, elvect);
       }
@@ -1409,7 +1410,7 @@ void StabilizedCDRIntegrator::AssembleElementGrad(
       test = shape;
       if (tau_fun)
       {
-         dshape.AddMult_a((*tau_fun)(T.Metric(), dt, a, dudt, dudx, res), a, test);
+         dshape.AddMult_a((*tau_fun)(T, dt, a, dudt, dudx, res), a, test);
       }
 
       // Derivative of trail space -- acceleration and convection
@@ -1422,7 +1423,7 @@ void StabilizedCDRIntegrator::AssembleElementGrad(
       // Add scalar artificial diffusion
       if (kappa_fun)
       {
-         mu += (*kappa_fun)(T.Metric(), dt, a, dudt, dudx, res);
+         mu += (*kappa_fun)(T, dt, a, dudt, dudx, res);
       }
       // Add physial and scalar artificial diffusion terms
       AddMult_a_AAt(w*dt*mu, dshape, elmat);
@@ -1430,7 +1431,7 @@ void StabilizedCDRIntegrator::AssembleElementGrad(
       // Add matrix artificial diffusion terms
       if (kappa_mat_fun)
       {
-         (*kappa_mat_fun)(T.Metric(), dt, a, dudt, dudx, res, Ka);
+         (*kappa_mat_fun)(T, dt, a, dudt, dudx, res, Ka);
          Ka *= w*dt;
          Mult(dshape, Ka, dshape_Ka);
          AddMultABt(dshape, dshape_Ka, elmat);

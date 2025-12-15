@@ -79,39 +79,41 @@ void u0_function(const Vector &x, Vector &v)
 }
 
 //
-real_t Tau (const DenseMatrix& Gij,
+real_t Tau (ElementTransformation& Tr,
             const real_t& dt,
             const Vector& u,
             const Vector& dudt,
             const DenseMatrix& dudx,
             const Vector& res)
 {
-   return 1.0/sqrt(1.0/(dt*dt) + Gij.Mult(u));
+   return 1.0/sqrt(1.0/(dt*dt) + Tr.Metric().Mult(u));
 }
 
 //
-real_t Kdc (const DenseMatrix& Gij,
+real_t Kdc (ElementTransformation& Tr,
             const real_t& dt,
             const Vector& u,
             const Vector& dudt,
             const DenseMatrix& dudx,
             const Vector& res)
 {
-   return 0.1*res.Norml2()/(sqrt(Gij.Trace()*dudx.FNorm2()) + 1e-10);
+   return 0.1*res.Norml2()/(sqrt(Tr.Metric().Trace()*dudx.FNorm2()) + 1e-10);
 }
 
-void Kdc2 (const DenseMatrix& Gij,
+DenseMatrix mat1;
+void Kmat (ElementTransformation& Tr,
            const real_t& dt,
            const Vector& u,
            const Vector& dudt,
            const DenseMatrix& dudx,
            const Vector& res,
-           DenseMatrix& Ka)
+           DenseMatrix& Kij)
 {
-   Ka = Gij;
-   Ka *= 0.1*res.Norml2()/(dudx.FNorm2()) + 1e-10);
+   MultAtB(Tr.PerfectJacobian(), Tr.PerfectJacobian(), Kij);
+   mat1.SetSize(dudx.Size());
+   Mult(Tr.PerfectJacobian(), dudx, mat1);
+   Kij *= 0.01*res.Norml2()/(mat1.FNorm() + 1e-10);
 }
-
 
 //
 int main(int argc, char *argv[])
@@ -308,13 +310,15 @@ int main(int argc, char *argv[])
    // 8.
    StabilizedVectorConvectionNLFIntegrator::TauFunc_t tau;
    StabilizedVectorConvectionNLFIntegrator::KappaFunc_t kdc;
+   StabilizedVectorConvectionNLFIntegrator::KappaMatFunc_t kmat;
    tau = Tau;
    kdc = Kdc;
+   kmat = Kmat;
 
    TimeDepNonlinearForm form(&fes);
-   //form.AddTimeDepDomainIntegrator(new StabilizedVectorConvectionNLFIntegrator(&tau));
    form.AddTimeDepDomainIntegrator(new StabilizedVectorConvectionNLFIntegrator(
-                                      &tau, &kdc));
+                                      &tau, &kmat));
+
    // 8. Define the time-dependent evolution operator describing the ODE
    //    right-hand side, and perform time-integration (looping over the time
    //    iterations, ti, with a time-step dt).

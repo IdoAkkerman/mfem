@@ -547,7 +547,7 @@ class StabilizedVectorConvectionNLFIntegrator
    : public TimeDepNonlinearFormIntegrator
 {
 public:
-   typedef std::function<real_t(const DenseMatrix& Gij,
+   typedef std::function<real_t(ElementTransformation& Tr,
                                 const real_t& dt,
                                 const Vector& u,
                                 const Vector& dudt,
@@ -556,16 +556,17 @@ public:
 
    typedef TauFunc_t KappaFunc_t;
 
-   typedef std::function<real_t(const DenseMatrix& Gij,
-                                const real_t& dt,
-                                const Vector& u,
-                                const Vector& dudt,
-                                const DenseMatrix& dudx,
-                                const Vector& res,
-                                DenseMatrix& Ka)> KappaMatFunc_t;
+   typedef std::function<void(ElementTransformation& Tr,
+                              const real_t& dt,
+                              const Vector& u,
+                              const Vector& dudt,
+                              const DenseMatrix& dudx,
+                              const Vector& res,
+                              DenseMatrix& Ka)> KappaMatFunc_t;
 
 private:
-   DenseMatrix dshape, Ka, dshape_Ka, EF, dEF, dudx, ELV, elmat_comp, elmat_mass;
+   DenseMatrix dshape, Ka, dshape_Ka, mat1, EF, dEF, dudx, ELV, elmat_comp,
+               elmat_mass;
    Vector shape, test, trail;
 
    TauFunc_t *tau_fun = nullptr;
@@ -659,7 +660,7 @@ public:
 class StabilizedCDRIntegrator : public TimeDepNonlinearFormIntegrator
 {
 public:
-   typedef std::function<real_t(const DenseMatrix& Gij,
+   typedef std::function<real_t(ElementTransformation& Tr,
                                 const real_t& dt,
                                 const Vector& a,
                                 const real_t& dudt,
@@ -668,13 +669,13 @@ public:
 
    typedef TauFunc_t KappaFunc_t;
 
-   typedef std::function<real_t(const DenseMatrix& Gij,
-                                const real_t& dt,
-                                const Vector& a,
-                                const real_t& dudt,
-                                const Vector& dudx,
-                                const real_t& res,
-                                DenseMatrix& Ka)> KappaMatFunc_t;
+   typedef std::function<void(ElementTransformation& Tr,
+                              const real_t& dt,
+                              const Vector& a,
+                              const real_t& dudt,
+                              const Vector& dudx,
+                              const real_t& res,
+                              DenseMatrix& Ka)> KappaMatFunc_t;
 
 private:
    DenseMatrix dshape, Ka, dshape_Ka, elmat_comp, elmat_mass;

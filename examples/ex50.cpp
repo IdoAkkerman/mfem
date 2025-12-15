@@ -81,25 +81,41 @@ real_t u0_function(const Vector &x)
 }
 
 //
-real_t Tau (const DenseMatrix& Gij,
+real_t Tau (ElementTransformation& Tr,
             const real_t& dt,
             const Vector& a,
             const real_t& dudt,
             const Vector& dudx,
             const real_t& res)
 {
-   return 1.0/sqrt(1.0/(dt*dt) + Gij.Mult(a));
+   return 1.0/sqrt(1.0/(dt*dt) + Tr.Metric().Mult(a));
 }
 
 //
-real_t Kdc (const DenseMatrix& Gij,
+real_t Kdc (ElementTransformation& Tr,
             const real_t& dt,
             const Vector& a,
             const real_t& dudt,
             const Vector& dudx,
             const real_t& res)
 {
-   return 0.2*fabs(res)/(sqrt(Gij.Trace())*dudx.Norml2() + 1e-10);
+   return 0.01*fabs(res)/(sqrt(Tr.Metric().Trace())*dudx.Norml2() + 1e-10);
+}
+
+//
+Vector vec1;
+void Kmat (ElementTransformation& Tr,
+           const real_t& dt,
+           const Vector& a,
+           const real_t& dudt,
+           const Vector& dudx,
+           const real_t& res,
+           DenseMatrix& Kij)
+{
+   MultAtB(Tr.PerfectJacobian(), Tr.PerfectJacobian(), Kij);
+   vec1.SetSize(dudx.Size());
+   Tr.PerfectJacobian().Mult(dudx, vec1);
+   Kij *= 0.01*fabs(res)/(vec1.Norml2() + 1e-10);
 }
 
 //
@@ -304,8 +320,10 @@ int main(int argc, char *argv[])
 
    StabilizedCDRIntegrator::TauFunc_t tau;
    StabilizedCDRIntegrator::KappaFunc_t kdc;
+   StabilizedCDRIntegrator::KappaMatFunc_t kdc_mat;
    tau = Tau;
    kdc = Kdc;
+   kdc_mat = Kmat;
 
    TimeDepNonlinearForm form(&fes);
    form.AddTimeDepDomainIntegrator(
