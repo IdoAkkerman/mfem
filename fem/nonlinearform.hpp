@@ -222,7 +222,7 @@ public:
    /** @brief Compute the gradient Operator of the NonlinearForm corresponding
        to the state @a x with optional finalization and elimintaion. */
    /** @see GetGradient(const Vector &) */
-   Operator &GetGradient(const Vector &x, bool finalize) const;
+   virtual Operator &GetGradient(const Vector &x, bool finalize) const;
 
    /// Update the NonlinearForm to propagate updates of the associated FE space.
    /** After calling this method, the essential boundary conditions need to be
@@ -435,6 +435,11 @@ protected:
    Array<TimeDepNonlinearFormIntegrator*> tbfnfi; // owned
    Array<Array<int>*>              tbfnfi_marker; // not owned
 
+   Vector x0;
+   real_t dt, t;
+
+   mutable Vector x;
+
 public:
    /// Construct a TimeDepNonlinearForm on the given FiniteElementSpace, @a f.
    /** As an Operator, the TimeDepNonlinearForm has input and output size equal to the
@@ -442,6 +447,11 @@ public:
    TimeDepNonlinearForm(FiniteElementSpace *f)
       : NonlinearForm(f)
    { }
+
+   ///
+   void SetTimeAndSolution(const real_t &t_,
+                           const real_t &dt_,
+                           const Vector &x0_);
 
    /// Adds new Time dependent Domain Integrator.
    void AddTimeDepDomainIntegrator(TimeDepNonlinearFormIntegrator *nlfi)
@@ -513,7 +523,7 @@ public:
    /** @brief Compute the gradient Operator of the TimeDepNonlinearForm corresponding
        to the state @a x with optional finalization and elimintaion. */
    /** @see GetGradient(const Vector &) */
-   Operator &GetGradient(const Vector &x, bool finalize) const;
+   Operator &GetGradient(const Vector &x, bool finalize) const override;
 
    /** @brief Destroy the TimeDepNonlinearForm including the owned
        TimeDepNonlinearFormIntegrator%s and gradient Operator. */
