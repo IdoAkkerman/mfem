@@ -653,6 +653,112 @@ public:
                             DenseMatrix &elmat) override;
 };
 
+/** This class is used to assemble the CDR
+*/
+
+class StabilizedCDRIntegrator : public TimeDepNonlinearFormIntegrator
+{
+public:
+   typedef std::function<real_t(const DenseMatrix& Gij,
+                                const real_t& dt,
+                                const Vector& a,
+                                const real_t& dudt,
+                                const Vector& dudx,
+                                const real_t& res)> TauFunc_t;
+
+   typedef TauFunc_t KappaFunc_t;
+
+   typedef std::function<real_t(const DenseMatrix& Gij,
+                                const real_t& dt,
+                                const Vector& a,
+                                const real_t& dudt,
+                                const Vector& dudx,
+                                const real_t& res,
+                                DenseMatrix& Ka)> KappaMatFunc_t;
+
+private:
+   DenseMatrix dshape, Ka, dshape_Ka, elmat_comp, elmat_mass;
+   Vector shape, lshape, dudx, test, trail;
+
+   Coefficient *mass = nullptr;
+   VectorCoefficient *conv = nullptr;
+   Coefficient *diff = nullptr;
+   MatrixCoefficient *diff_mat = nullptr;
+   Coefficient *react = nullptr;
+   Coefficient *force = nullptr;
+
+   TauFunc_t *tau_fun = nullptr;
+   KappaFunc_t *kappa_fun = nullptr;
+   KappaMatFunc_t *kappa_mat_fun = nullptr;
+
+public:
+   StabilizedCDRIntegrator(Coefficient *mass_,
+                           VectorCoefficient *conv_,
+                           Coefficient *diff_ = nullptr,
+                           Coefficient *react_ = nullptr,
+                           Coefficient *force_ = nullptr,
+                           TauFunc_t *tau = nullptr,
+                           KappaFunc_t*kappa = nullptr)
+      : mass(mass_), conv(conv_),  diff(diff_), react(react_), force(force_),
+        tau_fun(tau), kappa_fun(kappa) { };
+
+   StabilizedCDRIntegrator(Coefficient *mass_,
+                           VectorCoefficient *conv_,
+                           Coefficient *diff_,
+                           Coefficient *react_,
+                           Coefficient *force_,
+                           TauFunc_t *tau,
+                           KappaMatFunc_t*kappa)
+      : mass(mass_), conv(conv_),  diff(diff_), react(react_), force(force_),
+        tau_fun(tau), kappa_mat_fun(kappa) { };
+
+   StabilizedCDRIntegrator(Coefficient *mass_,
+                           VectorCoefficient *conv_,
+                           MatrixCoefficient *diff_mat_,
+                           Coefficient *react_ = nullptr,
+                           Coefficient *force_ = nullptr,
+                           TauFunc_t *tau = nullptr,
+                           KappaFunc_t *kappa = nullptr)
+      : mass(mass_), conv(conv_),  diff_mat(diff_mat_), react(react_),
+        force(force_), tau_fun(tau), kappa_fun(kappa) { };
+
+   StabilizedCDRIntegrator(Coefficient *mass_,
+                           VectorCoefficient *conv_,
+                           MatrixCoefficient *diff_mat_,
+                           Coefficient *react_,
+                           Coefficient *force_,
+                           TauFunc_t *tau,
+                           KappaMatFunc_t *kappa)
+      : mass(mass_), conv(conv_),  diff_mat(diff_mat_), react(react_),
+        force(force_), tau_fun(tau), kappa_mat_fun(kappa) { };
+
+   StabilizedCDRIntegrator() = default;
+
+   static const IntegrationRule &GetRule(const FiniteElement &fe,
+                                         const ElementTransformation &T);
+
+   void AssembleElementVector(const FiniteElement &el,
+                              ElementTransformation &trans,
+                              const Vector &elfun,
+                              const Vector &elrate,
+                              Vector &elvect) override;
+
+   void AssembleElementGrad(const FiniteElement &el,
+                            ElementTransformation &trans,
+                            const Vector &elfun,
+                            const Vector &elrate,
+                            DenseMatrix &elmat) override;
+
+protected:
+   const IntegrationRule* GetDefaultIntegrationRule(
+      const FiniteElement& trial_fe,
+      const FiniteElement& test_fe,
+      const ElementTransformation& trans) const override
+   {
+      return &GetRule(test_fe, trans);
+   }
+};
+
 }
 
 #endif

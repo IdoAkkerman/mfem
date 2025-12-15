@@ -1007,10 +1007,10 @@ void StabilizedVectorConvectionNLFIntegrator::AssembleElementVector(
 
       // Add Petrov-Galerkin weight
       test = shape;
-      if (tau_fun)
-      {
-         dshape.AddMult_a((*tau_fun)(T.Metric(), dt, u, dudt, dudx, res), u, test);
-      }
+      /* if (tau_fun)
+       {
+          dshape.AddMult_a((*tau_fun)(T.Metric(), dt, u, dudt, dudx, res), u, test);
+       }*/
 
       // Add Galerkin and Petrov-Galerkin terms to the element vector
       AddMult_a_VWt(w, test, res, ELV);
@@ -1025,7 +1025,7 @@ void StabilizedVectorConvectionNLFIntegrator::AssembleElementVector(
       // Add matrix artificial diffusion to the element vector
       if (kappa_mat_fun)
       {
-         (*kappa_mat_fun)(T.Metric(), dt, u, dudt, dudx, res, Ka);
+         //  (*kappa_mat_fun)(T.Metric(), dt, u, dudt, dudx, res, Ka);
          //   Ka.Mult(dudx, res);  // Override res --> no longer the residual anymores
          //   dshape.AddMult_a(w, res, elvect);
       }
@@ -1098,52 +1098,52 @@ void StabilizedVectorConvectionNLFIntegrator::AssembleElementGrad(
       AddMult_a_VWt(w, test, trail, elmat_comp);
 
       // Add Galerkin and stabilization terms
-      MultVWt(test, trail, elmat_mass);
+      // MultVWt(test, trail, elmat_mass);
 
-      for (int ii = 0; ii < dim; ii++)
-      {
-         for (int jj = 0; jj < dim; jj++)
-         {
-            elmat.AddMatrix(w * dudx(ii, jj), elmat_mass, ii * nd, jj * nd);
-         }
-      }
+      /*  for (int ii = 0; ii < dim; ii++)
+        {
+           for (int jj = 0; jj < dim; jj++)
+           {
+              elmat.AddMatrix(w * dudx(ii, jj) *res[jj], elmat_mass, ii * nd, jj * nd);
+           }
+        }*/
 
-      if (tau_fun)
-      {
-         real_t tau = (*tau_fun)(T.Metric(), dt, u, dudt, dudx, res);
-         for (int ii = 0; ii < dim; ii++)
-         {
-            dshape.GetColumn(ii,  test);
-            MultVWt(test, shape, elmat_mass);
-            for (int jj = 0; jj < dim; jj++)
-            {
-               elmat.AddMatrix(w*tau*res(jj), elmat_mass, ii * nd, jj * nd);
-            }
-         }
-      }
+      /* if (tau_fun)
+       {
+          real_t tau = (*tau_fun)(T.Metric(), dt, u, dudt, dudx, res);
+          for (int ii = 0; ii < dim; ii++)
+          {
+             dshape.GetColumn(ii,  test);
+             MultVWt(test, shape, elmat_mass);
+             for (int jj = 0; jj < dim; jj++)
+             {
+                elmat.AddMatrix(dt*w*tau*res(jj), elmat_mass, ii * nd, jj * nd);
+             }
+          }
+       }*/
 
       // Add scalar artificial diffusion to the element vector
-      if (kappa_fun)
-      {
-         AddMult_a_AAt(w*(*kappa_fun)(T.Metric(), dt, u, dudt, dudx, res),
-                       dshape, elmat);
-      }
+      /* if (kappa_fun)
+        {
+           AddMult_a_AAt(w*(*kappa_fun)(T.Metric(), dt, u, dudt, dudx, res),
+                         dshape, elmat);
+        }
 
-      // Add matrix artificial diffusion to the element vector
-      if (kappa_mat_fun)
-      {
-         (*kappa_mat_fun)(T.Metric(), dt, u, dudt, dudx, res, Ka);
-         Ka *= w;
-         Mult(dshape, Ka, dshape_Ka);
-         AddMultABt(dshape, dshape_Ka, elmat);
-      }
+        // Add matrix artificial diffusion to the element vector
+        if (kappa_mat_fun)
+        {
+           (*kappa_mat_fun)(T.Metric(), dt, u, dudt, dudx, res, Ka);
+           Ka *= w*dt;
+           Mult(dshape, Ka, dshape_Ka);
+           AddMultABt(dshape, dshape_Ka, elmat);
+        }*/
    }
 
    for (int ii = 0; ii < dim; ii++)
    {
       elmat.AddMatrix(elmat_comp, ii * nd, ii * nd);
    }
-
+   elmat *= dt;
 }
 
 
@@ -1250,5 +1250,193 @@ void SkewSymmetricVectorConvectionNLFIntegrator::AssembleElementGrad(
       elmat.AddMatrix(-.5, elmat_comp_T, ii * nd, ii * nd);
    }
 }
+
+const IntegrationRule&
+StabilizedCDRIntegrator::GetRule(const FiniteElement &fe,
+                                 const ElementTransformation &T)
+{
+   const int order = 2 * fe.GetOrder() + T.OrderGrad(&fe);
+   return IntRules.Get(fe.GetGeomType(), order);
+}
+
+void StabilizedCDRIntegrator::AssembleElementVector(
+   const FiniteElement &el,
+   ElementTransformation &T,
+   const Vector &elfun,
+   const Vector &elrate,
+   Vector &elvect)
+{
+   const int nd = el.GetDof();
+   const int dim = el.GetDim();
+
+   shape.SetSize(nd);
+   test.SetSize(nd);
+   dshape.SetSize(nd, dim);
+   lshape.SetSize(nd);
+   dshape_Ka.SetSize(nd, kappa_mat_fun ? dim : 0);
+   elvect.SetSize(nd);
+
+   dudx.SetSize(dim);
+   real_t m,r,mu,f;
+   real_t u, dudt, dudx2, res, res0;
+   Vector a(dim);
+
+   Ka.SetSize(kappa_mat_fun ? dim : 0);
+
+   const IntegrationRule *ir = GetIntegrationRule(el, T);
+   elvect = 0.0;
+   for (int i = 0; i < ir->GetNPoints(); i++)
+   {
+      // Set the integration point
+      const IntegrationPoint &ip = ir->IntPoint(i);
+      T.SetIntPoint(&ip);
+      real_t w = ip.weight * T.Weight();
+
+      m = mass->Eval(T, ip);
+      conv->Eval(a, T, ip);
+      mu = diff->Eval(T, ip);
+      r = react->Eval(T, ip);
+      f = force->Eval(T, ip);
+
+      // Evaluate shape functions and related interpolated values
+      el.CalcShape(ip, shape);
+      u = shape*elfun;
+      dudt = shape*elrate;
+
+      // Evaluate the gradient of the shape functions
+      // and related interpolated values
+      el.CalcPhysDShape(T, dshape);
+      dshape.MultTranspose(elfun, dudx);
+
+      // Evaluate the gradient of the shape functions
+      // and related interpolated values
+      // el.CalcPhysLaplacian(T, lshape);
+      dudx2 = 0.0;//lshape*elfun;
+
+      // Compute the residual
+      res0 = m*dudt + a*dudx + r*u - f;
+      res = res0 - mu*dudx2;
+
+      // Add Petrov-Galerkin weight
+      test = shape;
+      if (tau_fun)
+      {
+         dshape.AddMult_a((*tau_fun)(T.Metric(), dt, a, dudt, dudx, res), a, test);
+      }
+
+      // Add Galerkin and Petrov-Galerkin terms to the element vector
+      elvect.Add(w*res0, test);
+
+      // Add scalar artificial diffusion
+      if (kappa_fun)
+      {
+         mu +=(*kappa_fun)(T.Metric(), dt, a, dudt, dudx, res);
+      }
+
+      // Add physical and scalar artificial diffusion to the element vector
+      dshape.AddMult_a(w*mu, dudx, elvect);
+
+      // Add matrix artificial diffusion to the element vector
+      if (kappa_mat_fun)
+      {
+         (*kappa_mat_fun)(T.Metric(), dt, a, dudt, dudx, res, Ka);
+         Ka.Mult(dudx, a);  // Override a
+         dshape.AddMult_a(w, a, elvect);
+      }
+   }
+}
+
+void StabilizedCDRIntegrator::AssembleElementGrad(
+   const FiniteElement &el,
+   ElementTransformation &T,
+   const Vector &elfun,
+   const Vector &elrate,
+   DenseMatrix &elmat)
+{
+   const int nd = el.GetDof();
+   const int dim = el.GetDim();
+
+   shape.SetSize(nd);
+   test.SetSize(nd);
+   trail.SetSize(nd);
+   dshape.SetSize(nd, dim);
+   dshape_Ka.SetSize(nd, kappa_mat_fun ? dim : 0);
+   elmat.SetSize(nd);
+
+   dudx.SetSize(dim);
+
+   real_t m,r,mu,f;
+   real_t u, dudt, dudx2, res, res0;
+   Vector a(dim);
+
+   Ka.SetSize(kappa_mat_fun ? dim : 0);
+
+   const IntegrationRule *ir = GetIntegrationRule(el, T);
+
+   elmat = 0.0;
+   for (int i = 0; i < ir->GetNPoints(); i++)
+   {
+      // Set the integration point
+      const IntegrationPoint &ip = ir->IntPoint(i);
+      T.SetIntPoint(&ip);
+      real_t w = ip.weight * T.Weight();
+
+      m = mass->Eval(T, ip);
+      conv->Eval(a, T, ip);
+      mu = diff->Eval(T, ip);
+      r = react->Eval(T, ip);
+      f = force->Eval(T, ip);
+
+      // Evaluate shape functions and related interpolated values
+      el.CalcShape(ip, shape);
+      u = shape*elfun;
+      dudt = shape*elrate;
+
+      // Evaluate the gradient of the shape functions
+      // and related interpolated values
+      el.CalcPhysDShape(T, dshape);
+      dshape.MultTranspose(elfun, dudx);
+
+      // Evaluate the gradient of the shape functions
+      // and related interpolated values
+      // el.CalcPhysLaplacian(T, lshape);
+      dudx2 = 0.0;//lshape*elfun;
+
+      // Compute the residual
+      res0 = m*dudt + a*dudx - mu*dudx2 + r*u - f;
+
+      // Add Petrov-Galerkin weight
+      test = shape;
+      if (tau_fun)
+      {
+         dshape.AddMult_a((*tau_fun)(T.Metric(), dt, a, dudt, dudx, res), a, test);
+      }
+
+      // Derivative of trail space -- acceleration and convection
+      trail = shape;
+      dshape.AddMult_a(dt, a, trail);
+
+      // Add Galerkin and stabilization terms
+      AddMult_a_VWt(w, test, trail, elmat);
+
+      // Add scalar artificial diffusion
+      if (kappa_fun)
+      {
+         mu += (*kappa_fun)(T.Metric(), dt, a, dudt, dudx, res);
+      }
+      // Add physial and scalar artificial diffusion terms
+      AddMult_a_AAt(w*dt*mu, dshape, elmat);
+
+      // Add matrix artificial diffusion terms
+      if (kappa_mat_fun)
+      {
+         (*kappa_mat_fun)(T.Metric(), dt, a, dudt, dudx, res, Ka);
+         Ka *= w*dt;
+         Mult(dshape, Ka, dshape_Ka);
+         AddMultABt(dshape, dshape_Ka, elmat);
+      }
+   }
+}
+
 
 }

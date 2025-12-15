@@ -22,63 +22,6 @@ int problem;
 // Mesh bounding box
 Vector bb_min, bb_max;
 
-// Velocity coefficient
-void velocity_function(const Vector &x, Vector &v)
-{
-   int dim = x.Size();
-
-   // map to the reference [-1,1] domain
-   Vector X(dim);
-   for (int i = 0; i < dim; i++)
-   {
-      real_t center = (bb_min[i] + bb_max[i]) * 0.5;
-      X(i) = 2 * (x(i) - center) / (bb_max[i] - bb_min[i]);
-   }
-
-   switch (problem)
-   {
-      case 0:
-      {
-         // Translations in 1D, 2D, and 3D
-         switch (dim)
-         {
-            case 1: v(0) = 1.0; break;
-            case 2: v(0) = sqrt(2./3.); v(1) = sqrt(1./3.); break;
-            case 3: v(0) = sqrt(3./6.); v(1) = sqrt(2./6.); v(2) = sqrt(1./6.);
-               break;
-         }
-         break;
-      }
-      case 1:
-      case 2:
-      {
-         // Clockwise rotation in 2D around the origin
-         const real_t w = M_PI/2;
-         switch (dim)
-         {
-            case 1: v(0) = 1.0; break;
-            case 2: v(0) = w*X(1); v(1) = -w*X(0); break;
-            case 3: v(0) = w*X(1); v(1) = -w*X(0); v(2) = 0.0; break;
-         }
-         break;
-      }
-      case 3:
-      {
-         // Clockwise twisting rotation in 2D around the origin
-         const real_t w = M_PI/2;
-         real_t d = max((X(0)+1.)*(1.-X(0)),0.) * max((X(1)+1.)*(1.-X(1)),0.);
-         d = d*d;
-         switch (dim)
-         {
-            case 1: v(0) = 1.0; break;
-            case 2: v(0) = d*w*X(1); v(1) = -d*w*X(0); break;
-            case 3: v(0) = d*w*X(1); v(1) = -d*w*X(0); v(2) = 0.0; break;
-         }
-         break;
-      }
-   }
-}
-
 // Initial condition
 real_t u0_function(const Vector &x)
 {
@@ -128,19 +71,11 @@ real_t u0_function(const Vector &x)
          const real_t f = M_PI;
          return sin(f*X(0))*sin(f*X(1));
       }
-   }
-   return 0.0;
-}
-
-// Inflow boundary condition (zero for the problems considered in this example)
-real_t inflow_function(const Vector &x)
-{
-   switch (problem)
-   {
-      case 0:
-      case 1:
-      case 2:
-      case 3: return 0.0;
+      case 4:
+      {
+         if (fabs(X(0)) < 0.1 && fabs(X(1)) < 0.1) { return 1; }
+         return 0;
+      }
    }
    return 0.0;
 }
@@ -148,23 +83,23 @@ real_t inflow_function(const Vector &x)
 //
 real_t Tau (const DenseMatrix& Gij,
             const real_t& dt,
-            const Vector& u,
-            const Vector& dudt,
-            const DenseMatrix& dudx,
-            const Vector& res)
+            const Vector& a,
+            const real_t& dudt,
+            const Vector& dudx,
+            const real_t& res)
 {
-   return 1.0/sqrt(1.0/(dt*dt) + Gij.Mult(u));
+   return 1.0/sqrt(1.0/(dt*dt) + Gij.Mult(a));
 }
 
 //
 real_t Kdc (const DenseMatrix& Gij,
             const real_t& dt,
-            const Vector& u,
-            const Vector& dudt,
-            const DenseMatrix& dudx,
-            const Vector& res)
+            const Vector& a,
+            const real_t& dudt,
+            const Vector& dudx,
+            const real_t& res)
 {
-   return 0.0;
+   return 0.2*fabs(res)/(sqrt(Gij.Trace())*dudx.Norml2() + 1e-10);
 }
 
 //
@@ -178,7 +113,7 @@ int main(int argc, char *argv[])
    OptionsParser args(argc, argv);
 
    // Setup parameters
-   problem = 0;
+   problem = 4;
    args.AddOption(&problem, "-p", "--problem",
                   "Problem setup to use. See options in velocity_function().");
 
@@ -194,7 +129,7 @@ int main(int argc, char *argv[])
                   "Order (degree) of the finite elements.");
 
    // Time integration parameters
-   int ode_solver_type = 4;
+   int ode_solver_type = 32;
    real_t t_final = 10.0;
    real_t dt = 0.01;
    args.AddOption(&ode_solver_type, "-s", "--ode-solver",
@@ -279,10 +214,7 @@ int main(int argc, char *argv[])
    // 6. Set up and assemble the bilinear and linear forms corresponding to the
    //    DG discretization. The DGTraceIntegrator involves integrals over mesh
    //    interior faces.
-   VectorFunctionCoefficient velocity(dim, velocity_function);
-   FunctionCoefficient inflow(inflow_function);
    FunctionCoefficient u0(u0_function);
-
 
    // 7. Define the initial conditions, save the corresponding grid function to
    //    a file and (optionally) save data in the VisIt format and initialize
@@ -317,6 +249,7 @@ int main(int argc, char *argv[])
          dc = new VisItDataCollection("Example50", &mesh);
          dc->SetPrecision(precision);
       }
+      dc->SetPrefixPath("Example50");
       dc->RegisterField("solution", &u);
       dc->SetCycle(0);
       dc->SetTime(0.0);
@@ -362,14 +295,22 @@ int main(int argc, char *argv[])
    }
 
    // 8.
-   StabilizedVectorConvectionNLFIntegrator::TauFunc_t tau;
-   StabilizedVectorConvectionNLFIntegrator::KappaFunc_t kdc;
+   ConstantCoefficient mass(1.0);
+   Vector a(dim); a = 1.0;
+   VectorConstantCoefficient conv(a);
+   ConstantCoefficient diff(0.0);
+   ConstantCoefficient react(0.0);
+   ConstantCoefficient force(0.0);
+
+   StabilizedCDRIntegrator::TauFunc_t tau;
+   StabilizedCDRIntegrator::KappaFunc_t kdc;
    tau = Tau;
    kdc = Kdc;
 
    TimeDepNonlinearForm form(&fes);
-   form.AddTimeDepDomainIntegrator(new StabilizedVectorConvectionNLFIntegrator(
-                                      &tau, &kdc));
+   form.AddTimeDepDomainIntegrator(
+      new StabilizedCDRIntegrator(&mass, &conv, &diff, &react, &force,
+                                  &tau, &kdc));
 
 
    // 8. Define the time-dependent evolution operator describing the ODE
@@ -381,8 +322,6 @@ int main(int argc, char *argv[])
    gmres.SetAbsTol(1e-12);
    gmres.SetMaxIter(GMRES_MaxIter);
    gmres.SetPrintLevel(-1);
-   //j_gmres.SetMonitor(j_monitor);
-   //j_gmres.SetPreconditioner(jac_prec);
 
    // Set up the Newton solver
    NewtonSolver newton_solver;
@@ -405,7 +344,6 @@ int main(int argc, char *argv[])
       real_t dt_real = min(dt, t_final - t);
       ode_solver->Step(u, t, dt_real);
       ti++;
-
       done = (t >= t_final - 1e-8*dt);
 
       if (done || ti % vis_steps == 0)
