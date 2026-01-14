@@ -562,12 +562,21 @@ protected:
    /// Specialized version of GetGradient() for BlockVector
    void ComputeGradientBlocked(const BlockVector &bx, bool finalize = true) const;
 
-public:
-   /// Construct an empty BlockTimeDepNonlinearForm. Initialize with SetSpaces().
-   BlockTimeDepNonlinearForm();
+   Vector x0;
+   real_t dt, t;
 
+   mutable Vector x;
+
+public:
    /// Construct a BlockTimeDepNonlinearForm on the given set of FiniteElementSpace%s.
-   BlockTimeDepNonlinearForm(Array<FiniteElementSpace *> &f);
+   BlockTimeDepNonlinearForm(Array<FiniteElementSpace *> &f)
+      : BlockNonlinearForm(f)
+   {}
+
+   ///
+   void SetTimeAndSolution(const real_t &t_,
+                           const real_t &dt_,
+                           const Vector &x0_);
 
    /// Adds new Time dependent Domain Integrator.
    void AddDomainIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi)
@@ -619,7 +628,8 @@ public:
 class Evolution : public TimeDependentOperator
 {
 private:
-   TimeDepNonlinearForm &form;
+   TimeDepNonlinearForm *form;
+   BlockTimeDepNonlinearForm *bform;
    IterativeSolver &solver;
 
    void Solve(const real_t dt,
@@ -628,6 +638,10 @@ private:
 public:
    /// Constructor
    Evolution(TimeDepNonlinearForm &form,
+             IterativeSolver &solver);
+
+   /// Constructor
+   Evolution(BlockTimeDepNonlinearForm &form,
              IterativeSolver &solver);
 
    /// Solve time dependent problem

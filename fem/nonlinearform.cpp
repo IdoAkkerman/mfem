@@ -2254,6 +2254,20 @@ TimeDepNonlinearForm::~TimeDepNonlinearForm()
    }
 }
 
+void BlockTimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
+                                                   const real_t &dt_,
+                                                   const Vector &x0_)
+{
+   t = t_;
+   dt = dt_;
+   x0 = x0_;
+   x.SetSize(x0.Size());
+
+   // for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
+   // for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
+   // for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
+   // for (int i = 0; i < tbfnfi.Size(); i++) { tbfnfi[i]->SetTimeStep(dt); }
+}
 
 real_t BlockTimeDepNonlinearForm::GetEnergyBlocked(const BlockVector &bx) const
 {
@@ -3041,16 +3055,26 @@ BlockTimeDepNonlinearForm::~BlockTimeDepNonlinearForm()
 Evolution::Evolution(TimeDepNonlinearForm &form_,
                      IterativeSolver &solver_)
    : TimeDependentOperator(form_.Width(), 0.0, IMPLICIT),
-     form(form_), solver(solver_)
+     form(&form_), bform(nullptr), solver(solver_)
 {
-   solver.SetOperator(form);
+   solver.SetOperator(*form);
+}
+
+// Evolution Constructor
+Evolution::Evolution(BlockTimeDepNonlinearForm &bform_,
+                     IterativeSolver &solver_)
+   : TimeDependentOperator(bform_.Width(), 0.0, IMPLICIT),
+     form(nullptr), bform(&bform_), solver(solver_)
+{
+   solver.SetOperator(*form);
 }
 
 // Solve time dependent problem
 void Evolution::Solve(const real_t dt, const Vector &u0,
                       Vector &dudt) const
 {
-   const_cast<Evolution *>(this)->form.SetTimeAndSolution(t, dt, u0);
+   if (form) { const_cast<Evolution *>(this)->form->SetTimeAndSolution(t, dt, u0); }
+   if (bform) { const_cast<Evolution *>(this)->bform->SetTimeAndSolution(t, dt, u0); }
    Vector zero;
    dudt = 0.0;
    solver.Mult(zero, dudt);
