@@ -1,9 +1,9 @@
-//                                MFEM Example 50
+//                                MFEM Example 51
 //
-// Compile with: make ex50
+// Compile with: make ex51
 //
 // Sample runs:
-//    ex50 -m ../data/periodic-square.mesh
+//    ex51 -m ../data/periodic-square.mesh
 //
 // Description:  This examples solves a time dependent nonlinear burgers equation
 

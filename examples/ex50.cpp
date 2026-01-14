@@ -5,7 +5,8 @@
 // Sample runs:
 //    ex50 -m ../data/periodic-square.mesh
 //
-// Description:  This examples solves a time dependent nonlinear burgers equation
+// Description: This examples solves the unsteady convection-diffusion-reaction
+//              using a stabilized formulation.
 
 #include "mfem.hpp"
 #include <memory>
