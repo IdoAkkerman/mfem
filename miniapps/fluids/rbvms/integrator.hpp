@@ -79,17 +79,17 @@ public:
       c_blowing.SetTime(t);
    };
 
-   /// Assemble the local energy
-   real_t GetElementEnergy(const Array<const FiniteElement *>&el,
-                           ElementTransformation &Tr,
-                           const Array<const Vector *> &elfun,
-                           const Array<const Vector *> &elrate);
-
    /// Assemble the element constant artifical diffusion
    real_t GetElemArtDiff(const Array<const FiniteElement *> &el,
                          ElementTransformation &Tr,
                          const Array<const Vector *> &elsol,
                          const Array<const Vector *> &elrate);
+
+   /// Assemble the local energy
+   real_t GetElementEnergy(const Array<const FiniteElement *>&el,
+                           ElementTransformation &Tr,
+                           const Array<const Vector *> &elfun,
+                           const Array<const Vector *> &elrate);
 
    /// Assemble the element interior residual vectors
    void AssembleElementVector(const Array<const FiniteElement *> &el,
@@ -97,7 +97,6 @@ public:
                               const Array<const Vector *> &elsol,
                               const Array<const Vector *> &elrate,
                               const Array<Vector *> &elvec);
-   //     real_t &cfl);
 
    /// Assemble the element interior gradient matrices
    void AssembleElementGrad(const Array<const FiniteElement*> &el,
@@ -107,23 +106,20 @@ public:
                             const Array2D<DenseMatrix *> &elmats);
 
    /// Assemble the outflow boundary residual vectors
-   void AssembleOutflowVector(const Array<const FiniteElement *> &el1,
-                              const Array<const FiniteElement *> &el2,
-                              FaceElementTransformations &Tr,
-                              const Array<const Vector *> &elfun,
-                              const Array<const Vector *> &elrate,
-                              const Array<Vector *> &elvect,
-                              real_t &outflow,
-                              bool suction = false);
+   void AssembleFaceVector(const Array<const FiniteElement *> &el1,
+                           const Array<const FiniteElement *> &el2,
+                           FaceElementTransformations &Tr,
+                           const Array<const Vector *> &elfun,
+                           const Array<const Vector *> &elrate,
+                           const Array<Vector *> &elvect);
 
    /// Assemble the outflow boundary gradient matrices
-   void AssembleOutflowGrad(const Array<const FiniteElement *>&el1,
-                            const Array<const FiniteElement *>&el2,
-                            FaceElementTransformations &Tr,
-                            const Array<const Vector *> &elfun,
-                            const Array<const Vector *> &elrate,
-                            const Array2D<DenseMatrix *> &elmats,
-                            bool suction = false);
+   void AssembleFaceGrad(const Array<const FiniteElement *>&el1,
+                         const Array<const FiniteElement *>&el2,
+                         FaceElementTransformations &Tr,
+                         const Array<const Vector *> &elfun,
+                         const Array<const Vector *> &elrate,
+                         const Array2D<DenseMatrix *> &elmats);
 
 
    /// Assemble the weak Dirichlet BC boundary residual vectors

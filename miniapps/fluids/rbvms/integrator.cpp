@@ -60,7 +60,7 @@ void IncNavStoIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
                                  real_t& rho, real_t &mu, Vector &u,
                                  ElementTransformation &T)
 {
-   real_t Cd = 6.0;
+   real_t Cd = 32.0;
    real_t Ct = 1.0;
 
    // Metric tensor
@@ -360,7 +360,8 @@ void IncNavStoIntegrator::AssembleElementVector(
       shg_p.Mult(up, sh_p);                       // PSPG help term
       elvec[1]->Add(w, sh_p);                     // Add PSPG term
    }
-
+   //elvec[0]->Print(std::cout,888);
+   //elvec[1]->Print(std::cout,888);
    elem_cfl = sqrt(elem_cfl);
 }
 
@@ -565,19 +566,31 @@ void IncNavStoIntegrator::AssembleElementGrad(
       }
       mat_wu.AddSubMatrix(i_dim * dof_u, i_dim * dof_u, mat_uu[ii++]);
    }
+
+   /*std::cout<<"-------------------------\n";
+      std::cout<<mat_wu.FNorm()<<std::endl;
+      std::cout<<mat_wp.FNorm()<<std::endl;
+      std::cout<<mat_qu.FNorm()<<std::endl;
+      std::cout<<mat_qp.FNorm()<<std::endl;
+   std::cout<<"-------------------------\n";*/
+   mat_wp *= dt;
+   mat_qp *= dt;
 }
 
 // Assemble the outflow boundary residual vectors
 void IncNavStoIntegrator
-::AssembleOutflowVector(const Array<const FiniteElement *> &el1,
-                        const Array<const FiniteElement *> &el2,
-                        FaceElementTransformations &Tr,
-                        const Array<const Vector *> &elsol,
-                        const Array<const Vector *> &elrate,
-                        const Array<Vector *> &elvec,
-                        real_t &outflow,
-                        bool suction)
+::AssembleFaceVector(const Array<const FiniteElement *> &el1,
+                     const Array<const FiniteElement *> &el2,
+                     FaceElementTransformations &Tr,
+                     const Array<const Vector *> &elsol,
+                     const Array<const Vector *> &elrate,
+                     const Array<Vector *> &elvec)
 {
+
+   //std::cout<<"IncNavStoIntegrator::AssembleFaceVector"<<std::endl;
+   real_t outflow = 0.0;
+   bool suction = false;
+
    int dof_u = el1[0]->GetDof();
    int dof_p = el1[1]->GetDof();
 
@@ -631,14 +644,17 @@ void IncNavStoIntegrator
 
 // Assemble the outflow boundary gradient matrices
 void IncNavStoIntegrator
-::AssembleOutflowGrad(const Array<const FiniteElement *>&el1,
-                      const Array<const FiniteElement *>&el2,
-                      FaceElementTransformations &Tr,
-                      const Array<const Vector *> &elsol,
-                      const Array<const Vector *> &elrate,
-                      const Array2D<DenseMatrix *> &elmats,
-                      bool suction)
+::AssembleFaceGrad(const Array<const FiniteElement *>&el1,
+                   const Array<const FiniteElement *>&el2,
+                   FaceElementTransformations &Tr,
+                   const Array<const Vector *> &elsol,
+                   const Array<const Vector *> &elrate,
+                   const Array2D<DenseMatrix *> &elmats)
 {
+   //std::cout<<"IncNavStoIntegrator::AssembleFaceGrad"<<std::endl;
+   real_t outflow = 0.0;
+   bool suction = false;
+
    int dof_u = el1[0]->GetDof();
    int dof_p = el1[1]->GetDof();
 

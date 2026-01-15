@@ -139,28 +139,48 @@ void sol_fun(const Vector &coord,  real_t t, Vector &u)
 {
    double x = coord[0];
    double y = coord[1];
-   double r = sqrt(x*x + y*y);
-   double r0 = 0.5;
+   if (false)
+   {
+      double r = sqrt(x*x + y*y);
+      double r0 = 0.5;
 
-   // Base flow + BC
-   u[0] = fmin(1.0, r - r0);
-   u[1] = 0.0;
+      // Base flow + BC
+      u[0] = fmin(1.0, r - r0);
+      u[1] = 0.0;
 
-   // Disturbance 1
-   x = coord[0];
-   y = coord[1] - 3.0;
-   r = sqrt(x*x + y*y);
-   r0 = 1.0;
-   u[0] += 2.0*fmax(0.0, r0 - r);
-   u[1] -= 0.5*fmax(0.0, r0 - r);
+      // Disturbance 1
+      x = coord[0];
+      y = coord[1] - 3.0;
+      r = sqrt(x*x + y*y);
+      r0 = 1.0;
+      u[0] += 2.0*fmax(0.0, r0 - r);
+      u[1] -= 0.5*fmax(0.0, r0 - r);
 
-   // Disturbance 2
-   x = coord[0] + 3.0;
-   y = coord[1];
-   r = sqrt(x*x + y*y);
-   r0 = 1.0;
-   u[0] -= 0.5*fmax(0.0, r0 - r);
-   u[1] += 2.0*fmax(0.0, r0 - r);
+      // Disturbance 2
+      x = coord[0] + 3.0;
+      y = coord[1];
+      r = sqrt(x*x + y*y);
+      r0 = 1.0;
+      u[0] -= 0.5*fmax(0.0, r0 - r);
+      u[1] += 2.0*fmax(0.0, r0 - r);
+   }
+   else
+   {
+      const double eps = 1e-6;
+
+      u[0] = pow(4.0*x*(1.0-x),0.01)*y*y*y;
+      u[1] = 0.0;
+
+      if (y     < eps) { u[0] = 0.0; }
+      if (x     < eps) { u[0] = 0.0; }
+      if (1.0-x < eps) { u[0] = 0.0; }
+      if (1.0-y < eps)
+      {
+         u[0] = 1.0;
+         if (x     < eps) { u[0] = 0.5; }
+         if (1.0-x < eps) { u[0] = 0.5; }
+      }
+   }
 }
 
 
@@ -310,6 +330,8 @@ int main(int argc, char *argv[])
    if (master_bdr.Size()>0) {cout<<"Periodic (master) = "; master_bdr.Print();}
    if (slave_bdr.Size()>0) {cout<<"Periodic (slave)  = "; slave_bdr.Print();}
 
+   std::cout<<mesh.bdr_attributes.Max()<<std::endl;
+
    Array<bool> bnd_flag(mesh.bdr_attributes.Max()+1);
    bnd_flag = true;
    for (int b = 0; b < mesh.bdr_attributes.Size(); b++)
@@ -384,14 +406,8 @@ int main(int argc, char *argv[])
    // Set up the preconditioner
    JacobianPreconditioner jac_prec(bOffsets);
 
-   Solver* pc_mom = nullptr;
-   Solver* pc_cont= nullptr;
-
-   HypreSmoother* hs_mom = new HypreSmoother();
-   HypreILU* ilu_cont = new HypreILU();
-
-   pc_mom = hs_mom;
-   pc_cont = ilu_cont;
+   DSmoother* pc_mom = new DSmoother();
+   DSmoother* pc_cont = new DSmoother();
 
    jac_prec.SetPreconditioner(0, pc_mom);
    jac_prec.SetPreconditioner(1, pc_cont);
@@ -405,7 +421,7 @@ int main(int argc, char *argv[])
    j_gmres.SetMaxIter(GMRES_MaxIter);
    j_gmres.SetPrintLevel(-1);
    j_gmres.SetMonitor(j_monitor);
-   j_gmres.SetPreconditioner(jac_prec);
+   //   j_gmres.SetPreconditioner(jac_prec);
 
    // Set up the Newton solver
    //NewtonSystemSolver newton_solver(MPI_COMM_WORLD,bOffsets);
@@ -444,6 +460,44 @@ int main(int argc, char *argv[])
    BlockTimeDepNonlinearForm form(spaces);
    form.AddTimeDepDomainIntegrator(
       new IncNavStoIntegrator(rho, mu, force, sol, suction, blowing));
+
+   Array<int> bdr_attr_marker(mesh.bdr_attributes.Size() ?
+                              mesh.bdr_attributes.Max() : 0);
+   bdr_attr_marker = 0;
+   for (int b = 0; b < outflow_bdr.Size(); b++)
+   {
+      bdr_attr_marker[outflow_bdr[b]-1] = 1;
+   }
+
+   form.AddTimeDepBdrFaceIntegrator(
+      new IncNavStoIntegrator(rho, mu, force, sol, suction, blowing),
+      bdr_attr_marker);
+
+
+   std::cout<<475<<std::endl;
+   Array<Array<int>*> bdr_attr_marker2(2);
+   bdr_attr_marker2[0] = new Array<int>(mesh.bdr_attributes.Size() ?
+                                        mesh.bdr_attributes.Max() : 0);
+   bdr_attr_marker2[1] = new Array<int>(mesh.bdr_attributes.Size() ?
+                                        mesh.bdr_attributes.Max() : 0);
+   std::cout<<481<<std::endl;
+   *bdr_attr_marker2[0] = 0;
+   *bdr_attr_marker2[1] = 0;
+   std::cout<<484<<std::endl;
+   for (int b = 0; b < strong_bdr.Size(); b++)
+   {
+      (*bdr_attr_marker2[0])[strong_bdr[b]-1] = 1;
+   }
+   Array<Vector*> rhs(2);
+   rhs = nullptr;
+   std::cout<<489<<std::endl;
+
+   bdr_attr_marker2[0]->Print(std::cout,555);
+   bdr_attr_marker2[1]->Print(std::cout,555);
+
+   form.SetEssentialBC(bdr_attr_marker2,rhs);
+   std::cout<<491<<std::endl;
+
 
    Evolution evo(form, newton_solver);
 
@@ -606,59 +660,59 @@ int main(int argc, char *argv[])
       real_t cfl = 0.0;//form.GetCFL();
       real_t outflow = 0.0;//form.GetOutflow();
       DenseMatrix bdrForce;// = form.GetForce();
-
-      // Print to file
-      int nbdr = mesh.bdr_attributes.Size();
-      os << std::setw(10);
-      os << si<<"\t"<<t<<"\t"<<dt<<"\t"<<cfl<<"\t"<<outflow<<"\t";
-      for (int b=0; b<nbdr; ++b)
-      {
-         int bnd = mesh.bdr_attributes[b];
-         for (int v=0; v<dim; ++v)
-         {
-            os<<bdrForce(bnd-1,v)<<"\t";
-         }
-      }
-      os<<"\n"<< std::flush;
-
-      // Print line lambda function
-      auto pline = [](int len)
-      {
-         cout<<" +";
-         for (int b=0; b<len; ++b) { cout<<"-"; }
-         cout<<"+\n";
-      };
-
-      // Print boundary header
-      if (nbdr >= 10)
-      {
-         cout<<"\n";
-         pline(10+13*nbdr);
-         cout<<" | Boundary | ";
-         for (int b=0; b<nbdr; ++b)
-         {
-            cout<<std::setw(10)<<mesh.bdr_attributes[b]<<" | ";
-         }
-         cout<<"\n";
-         pline(10+13*nbdr);
-
-         // Print actual forces
-         char dimName[] = "xyz";
-         for (int v=0; v<dim; ++v)
-         {
-            cout<<" | Force "<<dimName[v]<<"  | ";
+      /*
+            // Print to file
+            int nbdr = mesh.bdr_attributes.Size();
+            os << std::setw(10);
+            os << si<<"\t"<<t<<"\t"<<dt<<"\t"<<cfl<<"\t"<<outflow<<"\t";
             for (int b=0; b<nbdr; ++b)
             {
                int bnd = mesh.bdr_attributes[b];
-               cout<<std::defaultfloat<<std::setprecision(4)<<std::setw(10);
-               cout<<bdrForce(bnd-1,v)<<" | ";
+               for (int v=0; v<dim; ++v)
+               {
+                  os<<bdrForce(bnd-1,v)<<"\t";
+               }
             }
-            cout<<"\n";
-         }
-         pline(10+13*nbdr);
-         cout<<"\n"<<std::flush;
-      }
+            os<<"\n"<< std::flush;
 
+            // Print line lambda function
+            auto pline = [](int len)
+            {
+               cout<<" +";
+               for (int b=0; b<len; ++b) { cout<<"-"; }
+               cout<<"+\n";
+            };
+
+            // Print boundary header
+            if (nbdr >= 10)
+            {
+               cout<<"\n";
+               pline(10+13*nbdr);
+               cout<<" | Boundary | ";
+               for (int b=0; b<nbdr; ++b)
+               {
+                  cout<<std::setw(10)<<mesh.bdr_attributes[b]<<" | ";
+               }
+               cout<<"\n";
+               pline(10+13*nbdr);
+
+               // Print actual forces
+               char dimName[] = "xyz";
+               for (int v=0; v<dim; ++v)
+               {
+                  cout<<" | Force "<<dimName[v]<<"  | ";
+                  for (int b=0; b<nbdr; ++b)
+                  {
+                     int bnd = mesh.bdr_attributes[b];
+                     cout<<std::defaultfloat<<std::setprecision(4)<<std::setw(10);
+                     cout<<bdrForce(bnd-1,v)<<" | ";
+                  }
+                  cout<<"\n";
+               }
+               pline(10+13*nbdr);
+               cout<<"\n"<<std::flush;
+            }
+      */
 
       // Write visualization files
       while (t >= dt_vis*vi)
@@ -673,13 +727,12 @@ int main(int argc, char *argv[])
          cout << "        Time: " <<t-dt<<" "<<t-fac*dt<<" "<<t<<endl;
          line(80);
 
-
          // Copy solution in grid functions
          add (fac, xp0.GetBlock(0),(1.0-fac), xp.GetBlock(0), xpi.GetBlock(0));
-         // x_u.Distribute(xpi.GetBlock(0));
+         x_u = xpi.GetBlock(0);
 
          add (-1.0/dt, xp0.GetBlock(1), 1.0/dt, xp.GetBlock(1), xpi.GetBlock(1));
-         // x_p.Distribute(xpi.GetBlock(1));
+         x_p = xpi.GetBlock(1);
 
          // Actually write to file
          vdc.SetCycle(vi);
