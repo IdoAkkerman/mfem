@@ -2609,7 +2609,7 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
       Array<int> bdr_attr_marker(mesh->bdr_attributes.Size() ?
                                  mesh->bdr_attributes.Max() : 0);
       bdr_attr_marker = 0;
-      for (int k = 0; k < bfnfi.Size(); ++k)
+      for (int k = 0; k < tbfnfi.Size(); ++k)
       {
          if (tbfnfi_marker[k] == NULL)
          {
@@ -2678,6 +2678,12 @@ void BlockTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
 {
    add(x0,dt,dx,x);   // x = x0 + dt*dx
 
+   //std::cout<<x.Norml2()<<std::endl;
+   //std::cout<<dx.Norml2()<<std::endl;
+
+   //x.Print(std::cout, 9999);
+   //dx.Print(std::cout, 9999);
+
    //  const Vector &pdx = Prolongate(dx);
    //  const Vector &px = Prolongate(x);
 
@@ -2696,6 +2702,9 @@ void BlockTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
    xs.Update(const_cast<BlockVector&>(pbx), block_offsets);
    dxs.Update(const_cast<BlockVector&>(pbdx), block_offsets);
    ys.Update(pby, block_offsets);
+
+   //std::cout<<xs.Norml2()<<std::endl;
+   //std::cout<<dxs.Norml2()<<std::endl;
    MultBlocked(xs, dxs, ys);
 
    for (int s = 0; s < fes.Size(); s++)
@@ -2716,6 +2725,14 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
                                                        const BlockVector &bdx,
                                                        bool finalize) const
 {
+   /*
+   std::cout<<"BlockTimeDepNonlinearForm::ComputeGradientBlocked"<<std::endl;
+   std::cout<<tdnfi.Size() <<std::endl;
+   std::cout<<fnfi.Size()  <<std::endl;
+   std::cout<<tbfnfi.Size()<<std::endl;
+   std::cout<<tbnfi.Size()<<std::endl;
+   std::cout<<"------------------------------------------------"<<std::endl;
+   */
    const int skip_zeros = 0;
    Array<Array<int> *> vdofs(fes.Size());
    Array<Array<int> *> vdofs2(fes.Size());
@@ -2764,7 +2781,7 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
       Array<int> attr_marker(mesh->attributes.Size() ?
                              mesh->attributes.Max() : 0);
       attr_marker = 0;
-      for (int k = 0; k < dnfi.Size(); k++)
+      for (int k = 0; k < tdnfi.Size(); k++)
       {
          if (tdnfi_marker[k] == NULL)
          {
@@ -2825,7 +2842,7 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
       Array<int> bdr_attr_marker(mesh->bdr_attributes.Size() ?
                                  mesh->bdr_attributes.Max() : 0);
       bdr_attr_marker = 0;
-      for (int k = 0; k < bnfi.Size(); k++)
+      for (int k = 0; k < tbnfi.Size(); k++)
       {
          if (tbnfi_marker[k] == NULL)
          {
@@ -2926,9 +2943,9 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
       Array<int> bdr_attr_marker(mesh->bdr_attributes.Size() ?
                                  mesh->bdr_attributes.Max() : 0);
       bdr_attr_marker = 0;
-      for (int k = 0; k < bfnfi.Size(); ++k)
+      for (int k = 0; k < tbfnfi.Size(); ++k)
       {
-         if (bfnfi_marker[k] == NULL)
+         if (tbfnfi_marker[k] == NULL)
          {
             bdr_attr_marker = 1;
             break;
@@ -3075,6 +3092,7 @@ Operator &BlockTimeDepNonlinearForm::GetGradient(const Vector &dx) const
          BlockGrad->SetBlock(i, j, mGrads(i, j));
       }
    }
+   // std::cout<<3078<<std::endl;
    return *BlockGrad;
 }
 
