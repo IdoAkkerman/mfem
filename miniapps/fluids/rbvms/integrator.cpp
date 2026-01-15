@@ -8,7 +8,6 @@
 #include "integrator.hpp"
 
 using namespace mfem;
-using namespace RBVMS;
 
 // Constructor
 IncNavStoIntegrator::IncNavStoIntegrator(Coefficient &rho,
@@ -242,9 +241,10 @@ void IncNavStoIntegrator::AssembleElementVector(
    ElementTransformation &Tr,
    const Array<const Vector *> &elsol,
    const Array<const Vector *> &elrate,
-   const Array<Vector *> &elvec,
-   real_t &elem_cfl)
+   const Array<Vector *> &elvec)
+//  real_t &elem_cfl)
 {
+   real_t elem_cfl;
    if (el.Size() != 2)
    {
       mfem_error("IncNavStoIntegrator::AssembleElementVector"

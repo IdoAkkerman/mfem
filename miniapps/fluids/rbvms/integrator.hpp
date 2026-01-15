@@ -12,14 +12,11 @@
 
 using namespace mfem;
 
-namespace RBVMS
-{
-
 /** This class defines the time-dependent integrator for the
     Residual-based Variational multiscale formulation
     for incompressible Navier-Stokes flow.
 */
-class IncNavStoIntegrator
+class IncNavStoIntegrator: public BlockTimeDepNonlinearFormIntegrator
 {
 private:
 
@@ -99,8 +96,8 @@ public:
                               ElementTransformation &Tr,
                               const Array<const Vector *> &elsol,
                               const Array<const Vector *> &elrate,
-                              const Array<Vector *> &elvec,
-                              real_t &cfl);
+                              const Array<Vector *> &elvec);
+   //     real_t &cfl);
 
    /// Assemble the element interior gradient matrices
    void AssembleElementGrad(const Array<const FiniteElement*> &el,
@@ -147,7 +144,5 @@ public:
                               const Array2D<DenseMatrix *> &elmats,
                               bool blowing = false);
 };
-
-} // namespace RBVMS
 
 #endif

@@ -553,14 +553,22 @@ protected:
    Array<Array<int>*>                   tbfnfi_marker;
 
    /// Specialized version of GetEnergy() for BlockVectors
-   real_t GetEnergyBlocked(const BlockVector &bx) const;
+   real_t GetEnergyBlocked(const BlockVector &bx, const BlockVector &bdx) const;
 
    /// Specialized version of Mult() for BlockVector%s
    /// Block L-Vector to Block L-Vector
-   void MultBlocked(const BlockVector &bx, BlockVector &by) const;
+   void MultBlocked(const BlockVector &bx,
+                    const BlockVector &bdx,
+                    BlockVector &by) const;
 
    /// Specialized version of GetGradient() for BlockVector
-   void ComputeGradientBlocked(const BlockVector &bx, bool finalize = true) const;
+   void ComputeGradientBlocked(const BlockVector &bx,
+                               const BlockVector &bdx,
+                               bool finalize = true) const;
+
+
+   mutable BlockVector dxs;
+
 
    Vector x0;
    real_t dt, t;
@@ -579,35 +587,35 @@ public:
                            const Vector &x0_);
 
    /// Adds new Time dependent Domain Integrator.
-   void AddDomainIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi)
+   void AddTimeDepDomainIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi)
    { tdnfi.Append(nlfi); tdnfi_marker.Append(NULL); }
 
    /// Adds new Time dependent Domain Integrator, restricted to specific attributes.
-   void AddDomainIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi,
-                            Array<int> &elem_marker)
+   void AddTimeDepDomainIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi,
+                                   Array<int> &elem_marker)
    { tdnfi.Append(nlfi); tdnfi_marker.Append(&elem_marker); }
 
    /// Adds new Time dependent Boundary Integrator.
-   void AddBoundaryIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi)
+   void AddTimeDepBoundaryIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi)
    { tbnfi.Append(nlfi); tbnfi_marker.Append(NULL); }
 
    /// Adds new Time dependent Boundary Integrator, restricted to specific attributes.
-   void AddBoundaryIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi,
-                              Array<int> &elem_marker)
+   void AddTimeDepBoundaryIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi,
+                                     Array<int> &elem_marker)
    { tbnfi.Append(nlfi); tbnfi_marker.Append(&elem_marker); }
 
    /// Adds new Time dependent Interior Face Integrator.
-   void AddInteriorFaceIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi)
+   void AddTimeDepInteriorFaceIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi)
    { tfnfi.Append(nlfi); }
 
    /// Adds new Time dependent Boundary Face Integrator.
-   void AddBdrFaceIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi)
+   void AddTimeDepBdrFaceIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi)
    { tbfnfi.Append(nlfi); tbfnfi_marker.Append(NULL); }
 
    /** @brief Adds new Time dependent Boundary Face Integrator, restricted to
        specific boundary attributes. */
-   void AddBdrFaceIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi,
-                             Array<int> &bdr_marker)
+   void AddTimeDepBdrFaceIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi,
+                                    Array<int> &bdr_marker)
    { tbfnfi.Append(nlfi); tbfnfi_marker.Append(&bdr_marker); }
 
    real_t GetEnergy(const Vector &x) const override;

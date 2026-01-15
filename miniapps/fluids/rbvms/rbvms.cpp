@@ -442,8 +442,8 @@ int main(int argc, char *argv[])
    // RBVMS::Evolution evo(form, newton_solver);
 
    BlockTimeDepNonlinearForm form(spaces);
-   //  form.AddTimeDepDomainIntegrator(
-   //     new IncNavStoIntegrator integrator(rho, mu, force, sol, suction, blowing));
+   form.AddTimeDepDomainIntegrator(
+      new IncNavStoIntegrator(rho, mu, force, sol, suction, blowing));
 
    Evolution evo(form, newton_solver);
 

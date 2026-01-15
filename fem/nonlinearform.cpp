@@ -2263,17 +2263,20 @@ void BlockTimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
    x0 = x0_;
    x.SetSize(x0.Size());
 
-   // for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
-   // for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
-   // for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
-   // for (int i = 0; i < tbfnfi.Size(); i++) { tbfnfi[i]->SetTimeStep(dt); }
+   for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
+   for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
+   for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
+   for (int i = 0; i < tbfnfi.Size(); i++) { tbfnfi[i]->SetTimeStep(dt); }
 }
 
-real_t BlockTimeDepNonlinearForm::GetEnergyBlocked(const BlockVector &bx) const
+real_t BlockTimeDepNonlinearForm::GetEnergyBlocked(const BlockVector &bx,
+                                                   const BlockVector &bdx) const
 {
    Array<Array<int> *> vdofs(fes.Size());
    Array<Vector *> el_x(fes.Size());
+   Array<Vector *> el_dx(fes.Size());
    Array<const Vector *> el_x_const(fes.Size());
+   Array<const Vector *> el_dx_const(fes.Size());
    Array<const FiniteElement *> fe(fes.Size());
    ElementTransformation *T;
    Mesh *mesh = fes[0]->GetMesh();
@@ -2282,6 +2285,7 @@ real_t BlockTimeDepNonlinearForm::GetEnergyBlocked(const BlockVector &bx) const
    for (int i=0; i<fes.Size(); ++i)
    {
       el_x_const[i] = el_x[i] = new Vector();
+      el_dx_const[i] = el_dx[i] = new Vector();
       vdofs[i] = new Array<int>;
    }
 
@@ -2291,14 +2295,14 @@ real_t BlockTimeDepNonlinearForm::GetEnergyBlocked(const BlockVector &bx) const
       Array<int> attr_marker(mesh->attributes.Size() ?
                              mesh->attributes.Max() : 0);
       attr_marker = 0;
-      for (int k = 0; k < dnfi.Size(); k++)
+      for (int k = 0; k < tdnfi.Size(); k++)
       {
-         if (dnfi_marker[k] == NULL)
+         if (tdnfi_marker[k] == NULL)
          {
             attr_marker = 1;
             break;
          }
-         Array<int> &marker = *dnfi_marker[k];
+         Array<int> &marker = *tdnfi_marker[k];
          MFEM_ASSERT(marker.Size() == attr_marker.Size(),
                      "invalid marker for domain integrator #"
                      << k << ", counting from zero");
@@ -2321,32 +2325,34 @@ real_t BlockTimeDepNonlinearForm::GetEnergyBlocked(const BlockVector &bx) const
             fes[s]->GetElementVDofs(i, *vdofs[s], doftrans);
             bx.GetBlock(s).GetSubVector(*vdofs[s], *el_x[s]);
             doftrans.InvTransformPrimal(*el_x[s]);
+            bdx.GetBlock(s).GetSubVector(*vdofs[s], *el_dx[s]);
+            doftrans.InvTransformPrimal(*el_dx[s]);
          }
 
-         for (int k = 0; k < dnfi.Size(); ++k)
+         for (int k = 0; k < tdnfi.Size(); ++k)
          {
-            if (dnfi_marker[k] &&
-                (*dnfi_marker[k])[attr-1] == 0) { continue; }
+            if (tdnfi_marker[k] &&
+                (*tdnfi_marker[k])[attr-1] == 0) { continue; }
 
-            energy += dnfi[k]->GetElementEnergy(fe, *T, el_x_const);
+            energy += tdnfi[k]->GetElementEnergy(fe, *T, el_x_const, el_dx_const);
          }
       }
    }
 
-   if (bnfi.Size())
+   if (tbnfi.Size())
    {
       // Which boundary attributes need to be processed?
       Array<int> bdr_attr_marker(mesh->bdr_attributes.Size() ?
                                  mesh->bdr_attributes.Max() : 0);
       bdr_attr_marker = 0;
-      for (int k = 0; k < bnfi.Size(); k++)
+      for (int k = 0; k < tbnfi.Size(); k++)
       {
-         if (bnfi_marker[k] == NULL)
+         if (tbnfi_marker[k] == NULL)
          {
             bdr_attr_marker = 1;
             break;
          }
-         Array<int> &bdr_marker = *bnfi_marker[k];
+         Array<int> &bdr_marker = *tbnfi_marker[k];
          MFEM_ASSERT(bdr_marker.Size() == bdr_attr_marker.Size(),
                      "invalid boundary marker for boundary integrator #"
                      << k << ", counting from zero");
@@ -2369,14 +2375,16 @@ real_t BlockTimeDepNonlinearForm::GetEnergyBlocked(const BlockVector &bx) const
             fes[s]->GetBdrElementVDofs(i, *(vdofs[s]), doftrans);
             bx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_x[s]);
             doftrans.InvTransformPrimal(*el_x[s]);
+            bdx.GetBlock(s).GetSubVector(*vdofs[s], *el_dx[s]);
+            doftrans.InvTransformPrimal(*el_dx[s]);
          }
 
-         for (int k = 0; k < bnfi.Size(); k++)
+         for (int k = 0; k < tbnfi.Size(); k++)
          {
-            if (bnfi_marker[k] &&
-                (*bnfi_marker[k])[bdr_attr-1] == 0) { continue; }
+            if (tbnfi_marker[k] &&
+                (*tbnfi_marker[k])[bdr_attr-1] == 0) { continue; }
 
-            energy += bnfi[k]->GetElementEnergy(fe, *T, el_x_const);
+            energy += tbnfi[k]->GetElementEnergy(fe, *T, el_x_const, el_dx_const);
          }
       }
    }
@@ -2385,6 +2393,7 @@ real_t BlockTimeDepNonlinearForm::GetEnergyBlocked(const BlockVector &bx) const
    for (int i = 0; i < fes.Size(); ++i)
    {
       delete el_x[i];
+      delete el_dx[i];
       delete vdofs[i];
    }
 
@@ -2401,19 +2410,25 @@ real_t BlockTimeDepNonlinearForm::GetEnergyBlocked(const BlockVector &bx) const
    return energy;
 }
 
-real_t BlockTimeDepNonlinearForm::GetEnergy(const Vector &x) const
+real_t BlockTimeDepNonlinearForm::GetEnergy(const Vector &dx) const
 {
+   add(x0,dt,dx,x);   // x = x0 + dt*dx
    xs.Update(const_cast<Vector&>(x), block_offsets);
-   return GetEnergyBlocked(xs);
+   dxs.Update(const_cast<Vector&>(dx), block_offsets);
+   return GetEnergyBlocked(xs, dxs);
 }
 
 void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
+                                            const BlockVector &bdx,
                                             BlockVector &by) const
 {
+
    Array<Array<int> *>vdofs(fes.Size());
    Array<Array<int> *>vdofs2(fes.Size());
    Array<Vector *> el_x(fes.Size());
+   Array<Vector *> el_dx(fes.Size());
    Array<const Vector *> el_x_const(fes.Size());
+   Array<const Vector *> el_dx_const(fes.Size());
    Array<Vector *> el_y(fes.Size());
    Array<const FiniteElement *> fe(fes.Size());
    Array<const FiniteElement *> fe2(fes.Size());
@@ -2427,25 +2442,26 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
    for (int s=0; s<fes.Size(); ++s)
    {
       el_x_const[s] = el_x[s] = new Vector();
+      el_dx_const[s] = el_dx[s] = new Vector();
       el_y[s] = new Vector();
       vdofs[s] = new Array<int>;
       vdofs2[s] = new Array<int>;
    }
 
-   if (dnfi.Size())
+   if (tdnfi.Size())
    {
       // Which attributes need to be processed?
       Array<int> attr_marker(mesh->attributes.Size() ?
                              mesh->attributes.Max() : 0);
       attr_marker = 0;
-      for (int k = 0; k < dnfi.Size(); k++)
+      for (int k = 0; k < tdnfi.Size(); k++)
       {
-         if (dnfi_marker[k] == NULL)
+         if (tdnfi_marker[k] == NULL)
          {
             attr_marker = 1;
             break;
          }
-         Array<int> &marker = *dnfi_marker[k];
+         Array<int> &marker = *tdnfi_marker[k];
          MFEM_ASSERT(marker.Size() == attr_marker.Size(),
                      "invalid marker for domain integrator #"
                      << k << ", counting from zero");
@@ -2467,15 +2483,17 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
             fe[s] = fes[s]->GetFE(i);
             bx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_x[s]);
             doftrans[s].InvTransformPrimal(*el_x[s]);
+            bdx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_dx[s]);
+            doftrans[s].InvTransformPrimal(*el_dx[s]);
          }
 
-         for (int k = 0; k < dnfi.Size(); ++k)
+         for (int k = 0; k < tdnfi.Size(); ++k)
          {
-            if (dnfi_marker[k] &&
-                (*dnfi_marker[k])[attr-1] == 0) { continue; }
+            if (tdnfi_marker[k] &&
+                (*tdnfi_marker[k])[attr-1] == 0) { continue; }
 
-            dnfi[k]->AssembleElementVector(fe, *T,
-                                           el_x_const, el_y);
+            tdnfi[k]->AssembleElementVector(fe, *T,
+                                            el_x_const, el_dx_const, el_y);
 
             for (int s=0; s<fes.Size(); ++s)
             {
@@ -2487,7 +2505,7 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
       }
    }
 
-   if (bnfi.Size())
+   if (tbnfi.Size())
    {
       // Which boundary attributes need to be processed?
       Array<int> bdr_attr_marker(mesh->bdr_attributes.Size() ?
@@ -2495,12 +2513,12 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
       bdr_attr_marker = 0;
       for (int k = 0; k < bnfi.Size(); k++)
       {
-         if (bnfi_marker[k] == NULL)
+         if (tbnfi_marker[k] == NULL)
          {
             bdr_attr_marker = 1;
             break;
          }
-         Array<int> &bdr_marker = *bnfi_marker[k];
+         Array<int> &bdr_marker = *tbnfi_marker[k];
          MFEM_ASSERT(bdr_marker.Size() == bdr_attr_marker.Size(),
                      "invalid boundary marker for boundary integrator #"
                      << k << ", counting from zero");
@@ -2522,14 +2540,16 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
             fe[s] = fes[s]->GetBE(i);
             bx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_x[s]);
             doftrans[s].InvTransformPrimal(*el_x[s]);
+            bdx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_dx[s]);
+            doftrans[s].InvTransformPrimal(*el_dx[s]);
          }
 
-         for (int k = 0; k < bnfi.Size(); k++)
+         for (int k = 0; k < tbnfi.Size(); k++)
          {
-            if (bnfi_marker[k] &&
-                (*bnfi_marker[k])[bdr_attr-1] == 0) { continue; }
+            if (tbnfi_marker[k] &&
+                (*tbnfi_marker[k])[bdr_attr-1] == 0) { continue; }
 
-            bnfi[k]->AssembleElementVector(fe, *T, el_x_const, el_y);
+            tbnfi[k]->AssembleElementVector(fe, *T, el_x_const, el_dx_const, el_y);
 
             for (int s=0; s<fes.Size(); ++s)
             {
@@ -2542,7 +2562,7 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
    }
 
 
-   if (fnfi.Size())
+   if (tfnfi.Size())
    {
       FaceElementTransformations *tr;
 
@@ -2562,12 +2582,14 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
                vdofs[s]->Append(*(vdofs2[s]));
 
                bx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_x[s]);
+               bdx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_dx[s]);
             }
 
-            for (int k = 0; k < fnfi.Size(); ++k)
+            for (int k = 0; k < tfnfi.Size(); ++k)
             {
 
-               fnfi[k]->AssembleFaceVector(fe, fe2, *tr, el_x_const, el_y);
+               tfnfi[k]->AssembleFaceVector(fe, fe2, *tr,
+                                            el_x_const, el_dx_const, el_y);
 
                for (int s=0; s<fes.Size(); ++s)
                {
@@ -2579,7 +2601,7 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
       }
    }
 
-   if (bfnfi.Size())
+   if (tbfnfi.Size())
    {
       FaceElementTransformations *tr;
 
@@ -2589,12 +2611,12 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
       bdr_attr_marker = 0;
       for (int k = 0; k < bfnfi.Size(); ++k)
       {
-         if (bfnfi_marker[k] == NULL)
+         if (tbfnfi_marker[k] == NULL)
          {
             bdr_attr_marker = 1;
             break;
          }
-         Array<int> &bdr_marker = *bfnfi_marker[k];
+         Array<int> &bdr_marker = *tbfnfi_marker[k];
          MFEM_ASSERT(bdr_marker.Size() == bdr_attr_marker.Size(),
                      "invalid boundary marker for boundary face integrator #"
                      << k << ", counting from zero");
@@ -2619,14 +2641,16 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
 
                fes[s]->GetElementVDofs(tr->Elem1No, *(vdofs[s]));
                bx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_x[s]);
+               bdx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_dx[s]);
             }
 
-            for (int k = 0; k < bfnfi.Size(); ++k)
+            for (int k = 0; k < tbfnfi.Size(); ++k)
             {
-               if (bfnfi_marker[k] &&
-                   (*bfnfi_marker[k])[bdr_attr-1] == 0) { continue; }
+               if (tbfnfi_marker[k] &&
+                   (*tbfnfi_marker[k])[bdr_attr-1] == 0) { continue; }
 
-               bfnfi[k]->AssembleFaceVector(fe, fe2, *tr, el_x_const, el_y);
+               tbfnfi[k]->AssembleFaceVector(fe, fe2, *tr,
+                                             el_x_const, el_dx_const, el_y);
 
                for (int s=0; s<fes.Size(); ++s)
                {
@@ -2644,17 +2668,25 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
       delete vdofs[s];
       delete el_y[s];
       delete el_x[s];
+      delete el_dx[s];
    }
 
    by.SyncFromBlocks();
 }
 
-void BlockTimeDepNonlinearForm::Mult(const Vector &x, Vector &y) const
+void BlockTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
 {
+   add(x0,dt,dx,x);   // x = x0 + dt*dx
+
+   //  const Vector &pdx = Prolongate(dx);
+   //  const Vector &px = Prolongate(x);
+
    BlockVector bx(const_cast<Vector&>(x), block_trueOffsets);
+   BlockVector bdx(const_cast<Vector&>(dx), block_trueOffsets);
    BlockVector by(y, block_trueOffsets);
 
    const BlockVector &pbx = Prolongate(bx);
+   const BlockVector &pbdx = Prolongate(bdx);
    if (needs_prolongation)
    {
       aux2.Update(block_offsets);
@@ -2662,8 +2694,9 @@ void BlockTimeDepNonlinearForm::Mult(const Vector &x, Vector &y) const
    BlockVector &pby = needs_prolongation ? aux2 : by;
 
    xs.Update(const_cast<BlockVector&>(pbx), block_offsets);
+   dxs.Update(const_cast<BlockVector&>(pbdx), block_offsets);
    ys.Update(pby, block_offsets);
-   MultBlocked(xs, ys);
+   MultBlocked(xs, dxs, ys);
 
    for (int s = 0; s < fes.Size(); s++)
    {
@@ -2680,13 +2713,16 @@ void BlockTimeDepNonlinearForm::Mult(const Vector &x, Vector &y) const
 }
 
 void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
+                                                       const BlockVector &bdx,
                                                        bool finalize) const
 {
    const int skip_zeros = 0;
    Array<Array<int> *> vdofs(fes.Size());
    Array<Array<int> *> vdofs2(fes.Size());
    Array<Vector *> el_x(fes.Size());
+   Array<Vector *> el_dx(fes.Size());
    Array<const Vector *> el_x_const(fes.Size());
+   Array<const Vector *> el_dx_const(fes.Size());
    Array2D<DenseMatrix *> elmats(fes.Size(), fes.Size());
    Array<const FiniteElement *>fe(fes.Size());
    Array<const FiniteElement *>fe2(fes.Size());
@@ -2697,6 +2733,7 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
    for (int i=0; i<fes.Size(); ++i)
    {
       el_x_const[i] = el_x[i] = new Vector();
+      el_dx_const[i] = el_dx[i] = new Vector();
       vdofs[i] = new Array<int>;
       vdofs2[i] = new Array<int>;
       for (int j=0; j<fes.Size(); ++j)
@@ -2721,7 +2758,7 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
       }
    }
 
-   if (dnfi.Size())
+   if (tdnfi.Size())
    {
       // Which attributes need to be processed?
       Array<int> attr_marker(mesh->attributes.Size() ?
@@ -2729,12 +2766,12 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
       attr_marker = 0;
       for (int k = 0; k < dnfi.Size(); k++)
       {
-         if (dnfi_marker[k] == NULL)
+         if (tdnfi_marker[k] == NULL)
          {
             attr_marker = 1;
             break;
          }
-         Array<int> &marker = *dnfi_marker[k];
+         Array<int> &marker = *tdnfi_marker[k];
          MFEM_ASSERT(marker.Size() == attr_marker.Size(),
                      "invalid marker for domain integrator #"
                      << k << ", counting from zero");
@@ -2756,14 +2793,17 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
             fes[s]->GetElementVDofs(i, *vdofs[s], doftrans[s]);
             bx.GetBlock(s).GetSubVector(*vdofs[s], *el_x[s]);
             doftrans[s].InvTransformPrimal(*el_x[s]);
+            bdx.GetBlock(s).GetSubVector(*vdofs[s], *el_dx[s]);
+            doftrans[s].InvTransformPrimal(*el_dx[s]);
          }
 
-         for (int k = 0; k < dnfi.Size(); ++k)
+         for (int k = 0; k < tdnfi.Size(); ++k)
          {
-            if (dnfi_marker[k] &&
-                (*dnfi_marker[k])[attr-1] == 0) { continue; }
+            if (tdnfi_marker[k] &&
+                (*tdnfi_marker[k])[attr-1] == 0) { continue; }
 
-            dnfi[k]->AssembleElementGrad(fe, *T, el_x_const, elmats);
+            tdnfi[k]->AssembleElementGrad(fe, *T,
+                                          el_x_const, el_dx_const, elmats);
 
             for (int j=0; j<fes.Size(); ++j)
             {
@@ -2779,7 +2819,7 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
       }
    }
 
-   if (bnfi.Size())
+   if (tbnfi.Size())
    {
       // Which boundary attributes need to be processed?
       Array<int> bdr_attr_marker(mesh->bdr_attributes.Size() ?
@@ -2787,12 +2827,12 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
       bdr_attr_marker = 0;
       for (int k = 0; k < bnfi.Size(); k++)
       {
-         if (bnfi_marker[k] == NULL)
+         if (tbnfi_marker[k] == NULL)
          {
             bdr_attr_marker = 1;
             break;
          }
-         Array<int> &bdr_marker = *bnfi_marker[k];
+         Array<int> &bdr_marker = *tbnfi_marker[k];
          MFEM_ASSERT(bdr_marker.Size() == bdr_attr_marker.Size(),
                      "invalid boundary marker for boundary integrator #"
                      << k << ", counting from zero");
@@ -2814,14 +2854,17 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
             fes[s]->GetBdrElementVDofs(i, *(vdofs[s]), doftrans[s]);
             bx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_x[s]);
             doftrans[s].InvTransformPrimal(*el_x[s]);
+            bdx.GetBlock(s).GetSubVector(*(vdofs[s]), *el_dx[s]);
+            doftrans[s].InvTransformPrimal(*el_dx[s]);
          }
 
-         for (int k = 0; k < bnfi.Size(); k++)
+         for (int k = 0; k < tbnfi.Size(); k++)
          {
-            if (bnfi_marker[k] &&
-                (*bnfi_marker[k])[bdr_attr-1] == 0) { continue; }
+            if (tbnfi_marker[k] &&
+                (*tbnfi_marker[k])[bdr_attr-1] == 0) { continue; }
 
-            bnfi[k]->AssembleElementGrad(fe, *T, el_x_const, elmats);
+            tbnfi[k]->AssembleElementGrad(fe, *T,
+                                          el_x_const, el_dx_const, elmats);
 
             for (int j=0; j<fes.Size(); ++j)
             {
@@ -2855,11 +2898,13 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
             vdofs[s]->Append(*(vdofs2[s]));
 
             bx.GetBlock(s).GetSubVector(*vdofs[s], *el_x[s]);
+            bdx.GetBlock(s).GetSubVector(*vdofs[s], *el_dx[s]);
          }
 
-         for (int k = 0; k < fnfi.Size(); ++k)
+         for (int k = 0; k < tfnfi.Size(); ++k)
          {
-            fnfi[k]->AssembleFaceGrad(fe, fe2, *tr, el_x_const, elmats);
+            tfnfi[k]->AssembleFaceGrad(fe, fe2, *tr,
+                                       el_x_const, el_dx_const, elmats);
             for (int j=0; j<fes.Size(); ++j)
             {
                for (int l=0; l<fes.Size(); ++l)
@@ -2873,7 +2918,7 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
       }
    }
 
-   if (bfnfi.Size())
+   if (tbfnfi.Size())
    {
       FaceElementTransformations *tr;
 
@@ -2888,7 +2933,7 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
             bdr_attr_marker = 1;
             break;
          }
-         Array<int> &bdr_marker = *bfnfi_marker[k];
+         Array<int> &bdr_marker = *tbfnfi_marker[k];
          MFEM_ASSERT(bdr_marker.Size() == bdr_attr_marker.Size(),
                      "invalid boundary marker for boundary face integrator #"
                      << k << ", counting from zero");
@@ -2913,13 +2958,15 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
 
                fes[s]->GetElementVDofs(tr->Elem1No, *vdofs[s]);
                bx.GetBlock(s).GetSubVector(*vdofs[s], *el_x[s]);
+               bdx.GetBlock(s).GetSubVector(*vdofs[s], *el_dx[s]);
             }
 
-            for (int k = 0; k < bfnfi.Size(); ++k)
+            for (int k = 0; k < tbfnfi.Size(); ++k)
             {
-               if (bfnfi_marker[k] &&
-                   (*bfnfi_marker[k])[bdr_attr-1] == 0) { continue; }
-               bfnfi[k]->AssembleFaceGrad(fe, fe2, *tr, el_x_const, elmats);
+               if (tbfnfi_marker[k] &&
+                   (*tbfnfi_marker[k])[bdr_attr-1] == 0) { continue; }
+               tbfnfi[k]->AssembleFaceGrad(fe, fe2, *tr,
+                                           el_x_const, el_dx_const, elmats);
                for (int l=0; l<fes.Size(); ++l)
                {
                   for (int j=0; j<fes.Size(); ++j)
@@ -2954,15 +3001,19 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
       delete vdofs2[i];
       delete vdofs[i];
       delete el_x[i];
+      delete el_dx[i];
    }
 }
 
-Operator &BlockTimeDepNonlinearForm::GetGradient(const Vector &x) const
+Operator &BlockTimeDepNonlinearForm::GetGradient(const Vector &dx) const
 {
-   BlockVector bx(const_cast<Vector&>(x), block_trueOffsets);
-   const BlockVector &pbx = Prolongate(bx);
+   add(x0,dt,dx,x);   // x = x0 + dt*dx
 
-   ComputeGradientBlocked(pbx);
+   BlockVector bx(const_cast<Vector&>(x), block_trueOffsets);
+   BlockVector bdx(const_cast<Vector&>(dx), block_trueOffsets);
+   const BlockVector &pbx = Prolongate(bx);
+   const BlockVector &pbdx = Prolongate(bdx);
+   ComputeGradientBlocked(pbx,pbdx);
 
    Array2D<SparseMatrix *> mGrads(fes.Size(), fes.Size());
    mGrads = Grads;
@@ -3066,7 +3117,7 @@ Evolution::Evolution(BlockTimeDepNonlinearForm &bform_,
    : TimeDependentOperator(bform_.Width(), 0.0, IMPLICIT),
      form(nullptr), bform(&bform_), solver(solver_)
 {
-   solver.SetOperator(*form);
+   solver.SetOperator(*bform);
 }
 
 // Solve time dependent problem
