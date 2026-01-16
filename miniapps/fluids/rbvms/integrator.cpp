@@ -10,14 +10,10 @@
 using namespace mfem;
 
 // Constructor
-IncNavStoIntegrator::IncNavStoIntegrator(Coefficient &rho,
-                                         Coefficient &mu,
-                                         VectorCoefficient &force,
-                                         VectorCoefficient &sol,
-                                         Coefficient &suction,
-                                         Coefficient &blowing)
-   : c_rho(rho), c_mu(mu), c_force(force), c_sol(sol),
-     c_suction(suction), c_blowing(blowing)
+RBVMSIntegrator::RBVMSIntegrator(Coefficient &rho,
+                                 Coefficient &mu,
+                                 VectorCoefficient &force)
+   : c_rho(rho), c_mu(mu), c_force(force)
 {
    dim = force.GetVDim();
    u.SetSize(dim);
@@ -25,13 +21,10 @@ IncNavStoIntegrator::IncNavStoIntegrator(Coefficient &rho,
    f.SetSize(dim);
    res_m.SetSize(dim);
    up.SetSize(dim);
-   traction.SetSize(dim);
    grad_u.SetSize(dim);
    hess_u.SetSize(dim, (dim*(dim+1))/2);
    grad_p.SetSize(dim);
    Gij.SetSize(dim);
-   nor.SetSize(dim);
-   hn.SetSize(dim);
    hmap.SetSize(dim,dim);
 
    if (dim == 2)
@@ -56,9 +49,9 @@ IncNavStoIntegrator::IncNavStoIntegrator(Coefficient &rho,
 }
 
 // Compute RBVMS stabilisation parameters
-void IncNavStoIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
-                                 real_t& rho, real_t &mu, Vector &u,
-                                 ElementTransformation &T)
+void RBVMSIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
+                             real_t& rho, real_t &mu, Vector &u,
+                             ElementTransformation &T)
 {
    real_t Cd = 32.0;
    real_t Ct = 1.0;
@@ -103,11 +96,11 @@ void IncNavStoIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
 }
 
 // Compute element average artifical diffusion
-real_t IncNavStoIntegrator::GetElemArtDiff(const Array<const FiniteElement *>
-                                           &el,
-                                           ElementTransformation &Tr,
-                                           const Array<const Vector *> &elsol,
-                                           const Array<const Vector *> &elrate)
+real_t RBVMSIntegrator::GetElemArtDiff(const Array<const FiniteElement *>
+                                       &el,
+                                       ElementTransformation &Tr,
+                                       const Array<const Vector *> &elsol,
+                                       const Array<const Vector *> &elrate)
 {
    if (el.Size() != 2)
    {
@@ -183,21 +176,10 @@ real_t IncNavStoIntegrator::GetElemArtDiff(const Array<const FiniteElement *>
    return 0.0*num/fmax(den,1e-6);
 }
 
-// Compute Weak Dirichlet stabilisation parameters
-void IncNavStoIntegrator::GetTauB(real_t &tau_b, real_t &tau_n,
-                                  real_t &mu, Vector &u,
-                                  Vector &nor,
-                                  FaceElementTransformations &Tr)
-{
-   real_t Cb = 12.0;
 
-   Tr.Elem1->InverseJacobian().Mult(nor,hn);
-   tau_b = Cb*mu*hn.Norml2();
-   tau_n = 100.0;
-}
 
 // Get energy
-real_t IncNavStoIntegrator::GetElementEnergy(
+real_t RBVMSIntegrator::GetElementEnergy(
    const Array<const FiniteElement *>&el,
    ElementTransformation &Tr,
    const Array<const Vector *> &elsol,
@@ -236,7 +218,7 @@ real_t IncNavStoIntegrator::GetElementEnergy(
 }
 
 // Assemble the element interior residual vectors
-void IncNavStoIntegrator::AssembleElementVector(
+void RBVMSIntegrator::AssembleElementVector(
    const Array<const FiniteElement *> &el,
    ElementTransformation &Tr,
    const Array<const Vector *> &elsol,
@@ -360,13 +342,12 @@ void IncNavStoIntegrator::AssembleElementVector(
       shg_p.Mult(up, sh_p);                       // PSPG help term
       elvec[1]->Add(w, sh_p);                     // Add PSPG term
    }
-   //elvec[0]->Print(std::cout,888);
-   //elvec[1]->Print(std::cout,888);
+   *elvec[1] *= 1.0/dt;
    elem_cfl = sqrt(elem_cfl);
 }
 
 // Assemble the element interior gradient matrices
-void IncNavStoIntegrator::AssembleElementGrad(
+void RBVMSIntegrator::AssembleElementGrad(
    const Array<const FiniteElement*> &el,
    ElementTransformation &Tr,
    const Array<const Vector *> &elsol,
@@ -567,18 +548,30 @@ void IncNavStoIntegrator::AssembleElementGrad(
       mat_wu.AddSubMatrix(i_dim * dof_u, i_dim * dof_u, mat_uu[ii++]);
    }
 
-   /*std::cout<<"-------------------------\n";
-      std::cout<<mat_wu.FNorm()<<std::endl;
-      std::cout<<mat_wp.FNorm()<<std::endl;
-      std::cout<<mat_qu.FNorm()<<std::endl;
-      std::cout<<mat_qp.FNorm()<<std::endl;
-   std::cout<<"-------------------------\n";*/
    mat_wp *= dt;
-   mat_qp *= dt;
+   //mat_qp *= dt;
+
+   mat_qu *= 1.0/dt;
+   //mat_qp *= 1.0/dt;
 }
 
+
+// Set dimensions
+void OutflowIntegrator::SetDim (int dim_)
+{
+   if (dim == dim_) { return; }
+   dim =  dim_;
+   u.SetSize(dim);
+   traction.SetSize(dim);
+   grad_u.SetSize(dim);
+   Gij.SetSize(dim);
+   nor.SetSize(dim);
+   hn.SetSize(dim);
+}
+
+
 // Assemble the outflow boundary residual vectors
-void IncNavStoIntegrator
+void OutflowIntegrator
 ::AssembleFaceVector(const Array<const FiniteElement *> &el1,
                      const Array<const FiniteElement *> &el2,
                      FaceElementTransformations &Tr,
@@ -586,11 +579,11 @@ void IncNavStoIntegrator
                      const Array<const Vector *> &elrate,
                      const Array<Vector *> &elvec)
 {
-
    //std::cout<<"IncNavStoIntegrator::AssembleFaceVector"<<std::endl;
    real_t outflow = 0.0;
    bool suction = false;
 
+   SetDim(el1[0]->GetDim());
    int dof_u = el1[0]->GetDof();
    int dof_p = el1[1]->GetDof();
 
@@ -625,16 +618,16 @@ void IncNavStoIntegrator
       real_t rho = c_rho.Eval(*Tr.Elem1, eip);
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      elf_du.MultTranspose(sh_u, dudt);
+      // elf_du.MultTranspose(sh_u, dudt);
 
       real_t un = u*nor;
-      if (suction)
-      {
-         real_t suction_val = c_suction.Eval(*Tr.Elem1, eip);
-         traction.Set(suction_val,nor);
-         AddMult_a_VWt(w, sh_u, traction, elv_u);
-         outflow += rho * un * w; // No weight --> taken care of by nor
-      }
+      /* if (suction)
+       {
+          real_t suction_val = c_suction.Eval(*Tr.Elem1, eip);
+          traction.Set(suction_val,nor);
+          AddMult_a_VWt(w, sh_u, traction, elv_u);
+          outflow += rho * un * w; // No weight --> taken care of by nor
+       }*/
 
       if (un < 0.0) { continue; }
 
@@ -643,7 +636,7 @@ void IncNavStoIntegrator
 }
 
 // Assemble the outflow boundary gradient matrices
-void IncNavStoIntegrator
+void OutflowIntegrator
 ::AssembleFaceGrad(const Array<const FiniteElement *>&el1,
                    const Array<const FiniteElement *>&el2,
                    FaceElementTransformations &Tr,
@@ -651,10 +644,10 @@ void IncNavStoIntegrator
                    const Array<const Vector *> &elrate,
                    const Array2D<DenseMatrix *> &elmats)
 {
-   //std::cout<<"IncNavStoIntegrator::AssembleFaceGrad"<<std::endl;
    real_t outflow = 0.0;
    bool suction = false;
 
+   SetDim(el1[0]->GetDim());
    int dof_u = el1[0]->GetDof();
    int dof_p = el1[1]->GetDof();
 
@@ -694,7 +687,7 @@ void IncNavStoIntegrator
       real_t rho = c_rho.Eval(*Tr.Elem1, eip);
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      elf_du.MultTranspose(sh_u, dudt);
+      //elf_du.MultTranspose(sh_u, dudt);
       real_t un = u*nor;
 
       if (un < 0.0) { continue; }
@@ -730,18 +723,58 @@ void IncNavStoIntegrator
          }
       }
    }
+   //mat_wp *= dt;
+   // mat_qp *= dt;
+}
+
+
+// Constructor
+void WeakBCIntegrator::SetDim(int dim_)
+{
+   if (dim == dim_) { return; }
+   dim = dim_;
+   u.SetSize(dim);
+   ug.SetSize(dim);
+   ud.SetSize(dim);
+   // dudt.SetSize(dim);
+   //   f.SetSize(dim);
+   //  res_m.SetSize(dim);
+   // up.SetSize(dim);
+   traction.SetSize(dim);
+   grad_u.SetSize(dim);
+   hess_u.SetSize(dim, (dim*(dim+1))/2);
+   //   grad_p.SetSize(dim);
+   Gij.SetSize(dim);
+   nor.SetSize(dim);
+   hn.SetSize(dim);
+   flux.SetSize(dim);
+}
+
+
+// Compute Weak Dirichlet stabilisation parameters
+void WeakBCIntegrator::GetTauB(real_t &tau_b, real_t &tau_n,
+                               real_t &mu, Vector &u,
+                               Vector &nor,
+                               FaceElementTransformations &Tr)
+{
+   real_t Cb = 32.0;
+
+   Tr.Elem1->InverseJacobian().Mult(nor,hn);
+   tau_b = Cb*mu*hn.Norml2();
+   tau_n = 100.0;
 }
 
 // Assemble the weak Dirichlet BC boundary residual vectors
-void IncNavStoIntegrator
-::AssembleWeakDirBCVector(const Array<const FiniteElement *> &el1,
-                          const Array<const FiniteElement *> &el2,
-                          FaceElementTransformations &Tr,
-                          const Array<const Vector *> &elsol,
-                          const Array<const Vector *> &elrate,
-                          const Array<Vector *> &elvec,
-                          bool blowing)
+void WeakBCIntegrator
+::AssembleFaceVector(const Array<const FiniteElement *> &el1,
+                     const Array<const FiniteElement *> &el2,
+                     FaceElementTransformations &Tr,
+                     const Array<const Vector *> &elsol,
+                     const Array<const Vector *> &elrate,
+                     const Array<Vector *> &elvec)
 {
+   bool blowing = false;
+   SetDim(el1[0]->GetDim());
    int dof_u = el1[0]->GetDof();
    int dof_p = el1[1]->GetDof();
 
@@ -756,7 +789,7 @@ void IncNavStoIntegrator
    elv_u.UseExternalData(elvec[0]->GetData(), dof_u, dim);
 
    sh_u.SetSize(dof_u);
-
+   shg_u.SetSize(dof_u, dim);
    int intorder = 2*el1[0]->GetOrder();
    const IntegrationRule &ir = IntRules.Get(Tr.GetGeometryType(), intorder);
    real_t tau_b, tau_n;
@@ -772,29 +805,32 @@ void IncNavStoIntegrator
 
       real_t rho = c_rho.Eval(*Tr.Elem1, eip);
       real_t mu = c_mu.Eval(*Tr.Elem1, eip);
-      c_sol.Eval(up, *Tr.Elem1, eip);
+      c_sol.Eval(ug, *Tr.Elem1, eip);
 
       real_t w = ip.weight * Tr.Weight();
       CalcOrtho(Tr.Jacobian(), nor);
       nor /= nor.Norml2();
 
-      if (blowing)
+      /*if (blowing)
       {
          real_t blowing_val = c_blowing.Eval(*Tr.Elem1, eip);
          up.Add(-blowing_val, nor);
-      }
+      }*/
 
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      elf_du.MultTranspose(sh_u, dudt);
+      // elf_du.MultTranspose(sh_u, dudt);
 
-      up -= u;
-      up.Neg();
-      real_t un = up*nor;
+      //ug -= u;
+      //ug.Neg();
+      //real_t un = ug*nor;
+      add(u, -1.0, ug, ud);
+      real_t un = ud*nor;//= (u-ug)*nor;
+
 
       el1[0]->CalcPhysDShape(*Tr.Elem1, shg_u);
       MultAtB(elf_u, shg_u, grad_u);
-      grad_u.Symmetrize();           // Grad to strain
+      grad_u.Symmetrize();          // Grad to strain
 
       el1[1]->CalcPhysShape(*Tr.Elem1, sh_p);
       real_t p = sh_p*(*elsol[1]);
@@ -805,12 +841,12 @@ void IncNavStoIntegrator
       grad_u.Mult(nor, traction);
       traction *= -2*mu;             // Consistency
       traction.Add(p, nor);          // Pressure
-      traction.Add(tau_b,up);        // Penalty
+      traction.Add(tau_b,ud);        // Penalty
       traction.Add(tau_n*un,nor);    // Penalty -- normal
       AddMult_a_VWt(w, sh_u, traction, elv_u);
 
       // Dual consistency
-      MultVWt(nor,up, flux);
+      MultVWt(nor, ud, flux);
       flux.Symmetrize();
       AddMult_a_ABt(-w*2*mu, shg_u, flux, elv_u);
 
@@ -821,21 +857,23 @@ void IncNavStoIntegrator
       un = u*nor;
       if (un < 0.0) { continue; }
 
-      AddMult_a_VWt(rho*w*un, sh_u, up, elv_u);
+      AddMult_a_VWt(rho*w*un, sh_u, ud, elv_u);
    }
+   *elvec[1] *= 1.0/dt;
 }
 
 // Assemble the weak Dirichlet BC boundary gradient matrices
-void IncNavStoIntegrator
-::AssembleWeakDirBCGrad(const
-                        Array<const FiniteElement *>&el1,
-                        const Array<const FiniteElement *>&el2,
-                        FaceElementTransformations &Tr,
-                        const Array<const Vector *> &elsol,
-                        const Array<const Vector *> &elrate,
-                        const Array2D<DenseMatrix *> &elmats,
-                        bool blowing)
+void WeakBCIntegrator
+::AssembleFaceGrad(const
+                   Array<const FiniteElement *>&el1,
+                   const Array<const FiniteElement *>&el2,
+                   FaceElementTransformations &Tr,
+                   const Array<const Vector *> &elsol,
+                   const Array<const Vector *> &elrate,
+                   const Array2D<DenseMatrix *> &elmats)
 {
+   bool blowing = false;
+   SetDim(el1[0]->GetDim());
    int dof_u = el1[0]->GetDof();
    int dof_p = el1[1]->GetDof();
 
@@ -850,12 +888,13 @@ void IncNavStoIntegrator
    mat_wu.SetSize(dof_u*dim, dof_u*dim);
    mat_wp.SetSize(dof_u*dim, dof_p);
    mat_qu.SetSize(dof_p, dof_u*dim);
-   mat_qp.SetSize(dof_p, dof_p);
+   //mat_qp.SetSize(dof_p, dof_p);
+   mat_qp.SetSize(0, 0);
 
    mat_wu = 0.0;
    mat_wp = 0.0;
    mat_qu = 0.0;
-   mat_qp = 0.0;
+   //mat_qp = 0.0;
 
    sh_u.SetSize(dof_u);
    shg_u.SetSize(dof_u, dim);
@@ -885,7 +924,7 @@ void IncNavStoIntegrator
 
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      elf_du.MultTranspose(sh_u, dudt);
+      //  elf_du.MultTranspose(sh_u, dudt);
 
       el1[0]->CalcPhysDShape(*Tr.Elem1, shg_u);
       el1[1]->CalcPhysShape(*Tr.Elem1, sh_p);
@@ -1010,4 +1049,157 @@ void IncNavStoIntegrator
       }
 
    }
+
+   mat_wp *= dt;
+   mat_qp *= dt;
+
+   mat_qu *= 1.0/dt;
+   mat_qp *= 1.0/dt;
 }
+
+
+
+// Compute a norm for each component
+void NewtonSystemSolver::Norms(const Vector &r, Vector& lnorm) const
+{
+   lnorm.SetSize(nvar);
+   for (int i = 0; i < nvar; ++i)
+   {
+      Vector r_i(r.GetData() + bOffsets[i], bOffsets[i+1] - bOffsets[i]);
+      lnorm[i] = r_i*r_i;//sqrt(InnerProduct(MPI_COMM_WORLD, r_i, r_i));
+      MFEM_VERIFY(IsFinite(lnorm[i]), "norm[" << i << "] = " << lnorm[i]);
+   }
+}
+
+// Newton solver with a convergence check on each component
+void NewtonSystemSolver::Mult(const Vector &b, Vector &x) const
+{
+   MFEM_VERIFY(oper != NULL, "the Operator is not set (use SetOperator).");
+   MFEM_VERIFY(prec != NULL, "the Solver is not set (use SetSolver).");
+
+   int it = 0;
+   Vector norm0(nvar), norm(nvar), norm_goal(nvar);
+   const bool have_b = (b.Size() == Height());
+
+   if (!iterative_mode)
+   {
+      x = 0.0;
+   }
+
+   ProcessNewState(x);
+
+   oper->Mult(x, r);
+   if (have_b)
+   {
+      r -= b;
+   }
+
+   //   initial_norm
+   Norms(r, norm0);
+   norm = norm0;
+
+   if (print_options.first_and_last && !print_options.iterations)
+   {
+      mfem::out << "Newton iteration " << std::setw(3) << it <<"\n"
+                << " ||r||\n";
+      for (int i = 0; i < nvar; ++i)
+      {
+         mfem::out<<std::setw(8)<<std::defaultfloat<<std::setprecision(4)
+                  <<norm0[i]<<" %\n";
+      }
+   }
+
+   for (int i = 0; i < nvar; ++i)
+   {
+      norm_goal[i] = std::max(rel_tol*norm0[i], abs_tol);
+   }
+   prec->iterative_mode = false;
+
+   // x_{i+1} = x_i - [DF(x_i)]^{-1} [F(x_i)-b]
+   for (it = 0; true; it++)
+   {
+      if (print_options.iterations)
+      {
+         mfem::out << "Newton iteration " << std::setw(3) << it <<"\n"
+                   << " ||r||  \t"<< "||r||/||r_0||\n";
+         for (int i = 0; i < nvar; ++i)
+         {
+            mfem::out<<std::setw(8)<<std::defaultfloat<<std::setprecision(4)
+                     <<norm[i]<<"\t"
+                     <<std::setw(8)<<std::fixed<<std::setprecision(2)
+                     <<100*norm[i]/norm0[i]<<" %\n";
+         }
+      }
+      Monitor(it, -1.0, r, x);
+      converged = true;
+      for (int i = 0; i < nvar; ++i)
+      {
+         if (norm[i] > norm_goal[i])
+         {
+            converged = false;
+         }
+      }
+      if (converged) { break; }
+
+      if (it >= max_iter)
+      {
+         converged = false;
+         break;
+      }
+
+      grad = &oper->GetGradient(x);
+      prec->SetOperator(*grad);
+
+      if (lin_rtol_type)
+      {
+         AdaptiveLinRtolPreSolve(x, it, norm.Norml2());
+      }
+
+      prec->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
+
+      if (lin_rtol_type)
+      {
+         AdaptiveLinRtolPostSolve(c, r, it, norm.Norml2());
+      }
+
+      const real_t c_scale = ComputeScalingFactor(x, b);
+      if (c_scale == 0.0)
+      {
+         converged = false;
+         break;
+      }
+      add(x, -c_scale, c, x);
+
+      ProcessNewState(x);
+
+      oper->Mult(x, r);
+      if (have_b)
+      {
+         r -= b;
+      }
+      Norms(r, norm);
+   }
+
+   final_iter = it;
+   final_norm = norm.Norml2();
+
+   if (print_options.summary || (!converged && print_options.warnings) ||
+       print_options.first_and_last)
+   {
+      mfem::out << "Newton iteration " << std::setw(3) << it <<"\n"
+                << " ||r||  \t"<< "||r||/||r_0||\n";
+      for (int i = 0; i < nvar; ++i)
+      {
+         mfem::out<<std::setw(8)<<std::defaultfloat<<std::setprecision(4)
+                  <<norm[i]<<"\t"
+                  <<std::setw(8)<<std::fixed<<std::setprecision(2)
+                  <<100*norm[i]/norm0[i]<<" %\n";
+      }
+   }
+   if (!converged && (print_options.summary || print_options.warnings))
+   {
+      mfem::out << "Newton: No convergence!\n";
+   }
+}
+
+

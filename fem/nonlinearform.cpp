@@ -2262,7 +2262,7 @@ void BlockTimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
    dt = dt_;
    x0 = x0_;
    x.SetSize(x0.Size());
-
+   std::cout<<"SetTimeAndSolution"<<std::endl;
    for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
    for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
    for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
@@ -3065,6 +3065,7 @@ Operator &BlockTimeDepNonlinearForm::GetGradient(const Vector &dx) const
 
    for (int s = 0; s < fes.Size(); ++s)
    {
+      //ess_tdofs[s]->Print(std::cout, 5555);
       for (int i = 0; i < ess_tdofs[s]->Size(); ++i)
       {
          for (int j = 0; j < fes.Size(); ++j)
@@ -3092,7 +3093,6 @@ Operator &BlockTimeDepNonlinearForm::GetGradient(const Vector &dx) const
          BlockGrad->SetBlock(i, j, mGrads(i, j));
       }
    }
-   // std::cout<<3078<<std::endl;
    return *BlockGrad;
 }
 

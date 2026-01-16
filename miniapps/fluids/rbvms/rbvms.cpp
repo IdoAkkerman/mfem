@@ -29,16 +29,20 @@ void line(int len)
    cout<<"\n";
 }
 
+int problem = 0;
 
 void CheckBoundaries(Array<bool> &bnd_flags,
+                     Array<int> &markers,
                      Array<int> &bc_bnds)
 {
    int amax = bnd_flags.Size();
+   markers.SetSize(amax);
+   markers = 0;
    // Check strong boundaries
    for (int b = 0; b < bc_bnds.Size(); b++)
    {
-      int bnd = bc_bnds[b];
-      if ( bnd < 0 || bnd > amax )
+      int bnd = bc_bnds[b]-1;
+      if ( bnd < 0 || bnd >= amax )
       {
          mfem_error("Boundary out of range.");
       }
@@ -47,9 +51,9 @@ void CheckBoundaries(Array<bool> &bnd_flags,
          mfem_error("Boundary specified more then once.");
       }
       bnd_flags[bnd] = true;
+      markers[bnd] = 1;
    }
 }
-
 
 // Custom block preconditioner for the Jacobian
 class JacobianPreconditioner : public
@@ -135,11 +139,11 @@ public:
 
 };
 
-void sol_fun(const Vector &coord,  real_t t, Vector &u)
+void sol_u_fun(const Vector &coord,  real_t t, Vector &u)
 {
    double x = coord[0];
    double y = coord[1];
-   if (false)
+   if (problem == 1)
    {
       double r = sqrt(x*x + y*y);
       double r0 = 0.5;
@@ -177,10 +181,16 @@ void sol_fun(const Vector &coord,  real_t t, Vector &u)
       if (1.0-y < eps)
       {
          u[0] = 1.0;
+         u[1] = 0.0;
          if (x     < eps) { u[0] = 0.5; }
          if (1.0-x < eps) { u[0] = 0.5; }
       }
    }
+}
+
+real_t sol_p_fun(const Vector &coord,  real_t t)
+{
+   return 0;
 }
 
 
@@ -205,6 +215,9 @@ int main(int argc, char *argv[])
                   "Number of times to refine the mesh.");
    args.AddOption(&order, "-o", "--order",
                   "Finite element order isoparametric space.");
+
+   args.AddOption(&problem, "-p", "--problem",
+                  "Problem");
 
    // Problem parameters
    Array<int> strong_bdr;
@@ -332,28 +345,33 @@ int main(int argc, char *argv[])
 
    std::cout<<mesh.bdr_attributes.Max()<<std::endl;
 
-   Array<bool> bnd_flag(mesh.bdr_attributes.Max()+1);
+   Array<bool> bnd_flag(mesh.bdr_attributes.Max());
    bnd_flag = true;
    for (int b = 0; b < mesh.bdr_attributes.Size(); b++)
    {
-      bnd_flag[mesh.bdr_attributes[b]] = false;
+      bnd_flag[mesh.bdr_attributes[b]-1] = false;
    }
    // Provide more usefull error!!
-   CheckBoundaries(bnd_flag, strong_bdr);
-   CheckBoundaries(bnd_flag, weak_bdr);
-   CheckBoundaries(bnd_flag, outflow_bdr);
-   CheckBoundaries(bnd_flag, suction_bdr);
-   CheckBoundaries(bnd_flag, blowing_bdr);
-   CheckBoundaries(bnd_flag, master_bdr);
-   CheckBoundaries(bnd_flag, slave_bdr);
+   Array<int> strong_marker, weak_marker,outflow_marker,
+         suction_marker, blowing_marker, master_marker, slave_marker;
 
-   MFEM_VERIFY(master_bdr.Size() == master_bdr.Size(),
+   CheckBoundaries(bnd_flag, strong_marker, strong_bdr);
+   CheckBoundaries(bnd_flag, weak_marker, weak_bdr);
+   CheckBoundaries(bnd_flag, outflow_marker, outflow_bdr);
+   CheckBoundaries(bnd_flag, suction_marker, suction_bdr);
+   CheckBoundaries(bnd_flag, blowing_marker, blowing_bdr);
+   CheckBoundaries(bnd_flag, master_marker, master_bdr);
+   CheckBoundaries(bnd_flag, slave_marker, slave_bdr);
+
+   MFEM_VERIFY(master_bdr.Size() == slave_bdr.Size(),
                "Master-slave count do not match.");
+   bool allSet = true;
    for (int b = 0; b < bnd_flag.Size(); b++)
    {
-      MFEM_VERIFY(bnd_flag[b],
-                  "Not all boundaries have a boundary condition set.");
+      //   allSet = allSet || bnd_flag[b];
+      MFEM_VERIFY(bnd_flag[b], "Not all boundaries have a boundary condition set.");
    }
+
 
    // Select the time integrator
    unique_ptr<ODESolver> ode_solver = ODESolver::Select(ode_solver_type);
@@ -413,7 +431,7 @@ int main(int argc, char *argv[])
    jac_prec.SetPreconditioner(1, pc_cont);
 
    // Set up the Jacobian solver
-   GeneralResidualMonitor j_monitor("\t\tFGMRES", 25);
+   GeneralResidualMonitor j_monitor("\t\tFGMRES", 100);
    FGMRESSolver j_gmres;
    j_gmres.iterative_mode = false;
    j_gmres.SetRelTol(GMRES_RelTol);
@@ -421,11 +439,11 @@ int main(int argc, char *argv[])
    j_gmres.SetMaxIter(GMRES_MaxIter);
    j_gmres.SetPrintLevel(-1);
    j_gmres.SetMonitor(j_monitor);
-   //   j_gmres.SetPreconditioner(jac_prec);
+   j_gmres.SetPreconditioner(jac_prec);
 
    // Set up the Newton solver
-   //NewtonSystemSolver newton_solver(MPI_COMM_WORLD,bOffsets);
-   NewtonSolver newton_solver;
+   NewtonSystemSolver newton_solver(bOffsets);
+   // NewtonSolver newton_solver;
    newton_solver.iterative_mode = true;
    newton_solver.SetPrintLevel(1);
    newton_solver.SetRelTol(Newton_RelTol);
@@ -434,83 +452,44 @@ int main(int argc, char *argv[])
    newton_solver.SetSolver(j_gmres);
 
    // Define the physical parameters
-   //LibCoefficient rho(lib_file, "rho", false, rho_param);
-   //LibCoefficient mu(lib_file, "mu", false, mu_param);
-   //LibVectorCoefficient sol(dim, lib_file, "sol_u");
-   //LibVectorCoefficient force(dim, lib_file, "force");
-   //LibCoefficient suction(lib_file, "suction", false, 0.0);
-   //LibCoefficient blowing(lib_file, "blowing", false, 0.0);
-
    ConstantCoefficient rho(1.0);
    ConstantCoefficient mu(mu_param);
-
-   VectorFunctionCoefficient sol(dim, sol_fun);
+   VectorFunctionCoefficient sol_u(dim, sol_u_fun);
+   FunctionCoefficient sol_p(sol_p_fun);
 
    Vector force_param(dim);
    force_param = 0.0;
    VectorConstantCoefficient force(force_param);
-   ConstantCoefficient suction(0.0);
-   ConstantCoefficient blowing(0.0);
 
    // Define weak form and evolution
-   // RBVMS::IncNavStoIntegrator integrator(rho, mu, force, sol, suction, blowing);
-   //  RBVMS::NavStoForm form(spaces, integrator);
-   // RBVMS::Evolution evo(form, newton_solver);
-
    BlockTimeDepNonlinearForm form(spaces);
    form.AddTimeDepDomainIntegrator(
-      new IncNavStoIntegrator(rho, mu, force, sol, suction, blowing));
+      new RBVMSIntegrator(rho, mu, force));
 
-   Array<int> bdr_attr_marker(mesh.bdr_attributes.Size() ?
-                              mesh.bdr_attributes.Max() : 0);
-   bdr_attr_marker = 0;
-   for (int b = 0; b < outflow_bdr.Size(); b++)
-   {
-      bdr_attr_marker[outflow_bdr[b]-1] = 1;
-   }
+   form.AddTimeDepBdrFaceIntegrator(new OutflowIntegrator(rho),
+                                    outflow_marker);
 
-   form.AddTimeDepBdrFaceIntegrator(
-      new IncNavStoIntegrator(rho, mu, force, sol, suction, blowing),
-      bdr_attr_marker);
+   form.AddTimeDepBdrFaceIntegrator(new WeakBCIntegrator(rho, mu, sol_u),
+                                    weak_marker);
 
+   // {
+   Array<int>  pressure_marker (mesh.bdr_attributes.Max());
+   pressure_marker = 0;
+   Array<Array<int>*> marker(2);
+   marker[0] = &strong_marker;
+   marker[1] = &pressure_marker;
 
-   std::cout<<475<<std::endl;
-   Array<Array<int>*> bdr_attr_marker2(2);
-   bdr_attr_marker2[0] = new Array<int>(mesh.bdr_attributes.Size() ?
-                                        mesh.bdr_attributes.Max() : 0);
-   bdr_attr_marker2[1] = new Array<int>(mesh.bdr_attributes.Size() ?
-                                        mesh.bdr_attributes.Max() : 0);
-   std::cout<<481<<std::endl;
-   *bdr_attr_marker2[0] = 0;
-   *bdr_attr_marker2[1] = 0;
-   std::cout<<484<<std::endl;
-   for (int b = 0; b < strong_bdr.Size(); b++)
-   {
-      (*bdr_attr_marker2[0])[strong_bdr[b]-1] = 1;
-   }
    Array<Vector*> rhs(2);
    rhs = nullptr;
-   std::cout<<489<<std::endl;
 
-   bdr_attr_marker2[0]->Print(std::cout,555);
-   bdr_attr_marker2[1]->Print(std::cout,555);
-
-   form.SetEssentialBC(bdr_attr_marker2,rhs);
-   std::cout<<491<<std::endl;
-
+   form.SetEssentialBC(marker,rhs);
+   //}
 
    Evolution evo(form, newton_solver);
 
    real_t t = 0.0;
    evo.SetTime(t);
    ode_solver->Init(evo);
-
-   // Set boundaries in the weakform
-   // form.SetStrongBC (strong_bdr);
-   //  form.SetWeakBC   (weak_bdr);
-   //  form.SetOutflowBC(outflow_bdr);
-   // form.SetSuctionBC(suction_bdr);
-   //  form.SetBlowingBC(blowing_bdr);
 
    // 6. Define the solution vector, grid function and output
    BlockVector xp(bOffsets);
@@ -579,10 +558,10 @@ int main(int argc, char *argv[])
    {
       // Define initial condition from file
       t = 0.0; si = 0; ri = 1; vi = 1;
-      // LibVectorCoefficient sol(dim, lib_file, "sol_u");
-      sol.SetTime(-1.0);
-      x_u.ProjectCoefficient(sol);
-      x_p = 0.0;
+      sol_u.SetTime(-1.0);
+      sol_p.SetTime(-1.0);
+      x_u.ProjectCoefficient(sol_u);
+      x_p.ProjectCoefficient(sol_p);
 
       x_u.GetTrueDofs(xp.GetBlock(0));
       x_p.GetTrueDofs(xp.GetBlock(1));
@@ -592,7 +571,6 @@ int main(int argc, char *argv[])
       vdc.SetTime(0.0);
       vdc.Save();
    }
-
 
    // Define the restart output
    VisItDataCollection rdc("step", &mesh);
@@ -635,12 +613,10 @@ int main(int argc, char *argv[])
    }
    os<<endl;
 
-
    // Loop till final time reached
    while (t < t_final)
    {
       // Print header
-
       line(80);
       cout<<std::defaultfloat<<std::setprecision(4);
       cout<<" step = " << si << endl;
@@ -721,17 +697,14 @@ int main(int argc, char *argv[])
          real_t fac = (t-dt_vis*vi)/dt;
 
          // Report to screen
-
          line(80);
          cout << "Visit output: " <<vi << endl;
          cout << "        Time: " <<t-dt<<" "<<t-fac*dt<<" "<<t<<endl;
          line(80);
 
          // Copy solution in grid functions
-         add (fac, xp0.GetBlock(0),(1.0-fac), xp.GetBlock(0), xpi.GetBlock(0));
+         add (fac, xp0,(1.0-fac), xp, xpi);
          x_u = xpi.GetBlock(0);
-
-         add (-1.0/dt, xp0.GetBlock(1), 1.0/dt, xp.GetBlock(1), xpi.GetBlock(1));
          x_p = xpi.GetBlock(1);
 
          // Actually write to file
@@ -751,33 +724,23 @@ int main(int argc, char *argv[])
       }
 
       // Print cfl and dt to screen
-
       line(80);
       cout<<" outflow = "<<outflow<<endl;
       cout<<" cfl = "<<cfl<<endl;
       cout<<" dt  = "<<dt0<<" --> "<<dt<<endl;
       line(80);
 
-
       // Write restart files
       if (restart_interval > 0 && si%restart_interval == 0)
       {
          // Report to screen
-
          line(80);
          cout << "Restart output:" << ri << endl;
          line(80);
 
-
-         // Copy solution in grid functions
-         //x_u.Distribute(xp.GetBlock(0));
-         //    x_p.Distribute(xp.GetBlock(1));
-
          if (nstate == 1)
          {
             ode_solver_ws->GetState().Get(0,dxp);
-            //   dx_u[0]->Distribute(dxp.GetBlock(0));
-            //   dx_p[0]->Distribute(dxp.GetBlock(1));
          }
 
          // Actually write to file
@@ -787,7 +750,6 @@ int main(int argc, char *argv[])
          ri++;
 
          // print meta file
-
          std::ofstream step("restart/step.dat", std::ifstream::out);
          step<<t<<"\t"<<si<<"\t"<<ri<<"\t"<<vi<<endl;
          step<<dt<<endl;
@@ -796,6 +758,7 @@ int main(int argc, char *argv[])
       }
 
       cout<<endl<<endl;
+      cout<<"\n"<<std::flush;
    }
    os.close();
 
