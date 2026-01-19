@@ -1,11 +1,12 @@
-//                                MFEM Example 51
+//                                MFEM Example 50
 //
-// Compile with: make ex51
+// Compile with: make ex50
 //
 // Sample runs:
-//    ex51 -m ../data/periodic-square.mesh
+//    ex50 -m ../data/periodic-square.mesh
 //
-// Description:  This examples solves a time dependent nonlinear burgers equation
+// Description: This examples solves the unsteady convection-diffusion-reaction
+//              using a stabilized formulation.
 
 #include "mfem.hpp"
 #include <memory>
@@ -23,7 +24,7 @@ int problem;
 Vector bb_min, bb_max;
 
 // Initial condition
-void u0_function(const Vector &x, Vector &v)
+real_t u0_function(const Vector &x)
 {
    int dim = x.Size();
 
@@ -43,8 +44,7 @@ void u0_function(const Vector &x, Vector &v)
          switch (dim)
          {
             case 1:
-               v = exp(-40.*pow(X(0)-0.5,2));
-               break;
+               return exp(-40.*pow(X(0)-0.5,2));
             case 2:
             case 3:
             {
@@ -55,9 +55,8 @@ void u0_function(const Vector &x, Vector &v)
                   rx *= s;
                   ry *= s;
                }
-               v = (std::erfc(w*(X(0)-cx-rx))*std::erfc(-w*(X(0)-cx+rx)) *
-                    std::erfc(w*(X(1)-cy-ry))*std::erfc(-w*(X(1)-cy+ry)) )/16;
-               break;
+               return ( std::erfc(w*(X(0)-cx-rx))*std::erfc(-w*(X(0)-cx+rx)) *
+                        std::erfc(w*(X(1)-cy-ry))*std::erfc(-w*(X(1)-cy+ry)) )/16;
             }
          }
       }
@@ -66,58 +65,69 @@ void u0_function(const Vector &x, Vector &v)
          real_t x_ = X(0), y_ = X(1), rho, phi;
          rho = std::hypot(x_, y_);
          phi = atan2(y_, x_);
-         v = pow(sin(M_PI*rho),2)*sin(3*phi);
-         break;
+         return pow(sin(M_PI*rho),2)*sin(3*phi);
       }
       case 3:
       {
          const real_t f = M_PI;
-         v = sin(f*X(0))*sin(f*X(1));
-         break;
+         return sin(f*X(0))*sin(f*X(1));
+      }
+      case 4:
+      {
+         if (fabs(X(0)) < 0.1 && fabs(X(1)) < 0.1) { return 1; }
+         return 0;
       }
    }
+   return 0.0;
 }
 
 //
 real_t Tau (ElementTransformation& Tr,
             const real_t& dt,
-            const Vector& u,
-            const Vector& dudt,
-            const DenseMatrix& dudx,
-            const Vector& res)
+            const Vector& a,
+            const real_t& dudt,
+            const Vector& dudx,
+            const real_t& res)
 {
-   return 1.0/sqrt(1.0/(dt*dt) + Tr.Metric().Mult(u));
+   return 1.0/sqrt(1.0/(dt*dt) + Tr.Metric().Mult(a));
 }
 
 //
 real_t Kdc (ElementTransformation& Tr,
             const real_t& dt,
-            const Vector& u,
-            const Vector& dudt,
-            const DenseMatrix& dudx,
-            const Vector& res)
+            const Vector& a,
+            const real_t& dudt,
+            const Vector& dudx,
+            const real_t& res)
 {
-   return 0.1*res.Norml2()/(sqrt(Tr.Metric().Trace()*dudx.FNorm2()) + 1e-10);
+   return 0.01*fabs(res)/(sqrt(Tr.Metric().Trace())*dudx.Norml2() + 1e-10);
 }
 
-DenseMatrix mat1;
+//
+Vector vec1;
 void Kmat (ElementTransformation& Tr,
            const real_t& dt,
-           const Vector& u,
-           const Vector& dudt,
-           const DenseMatrix& dudx,
-           const Vector& res,
+           const Vector& a,
+           const real_t& dudt,
+           const Vector& dudx,
+           const real_t& res,
            DenseMatrix& Kij)
 {
    MultAtB(Tr.PerfectJacobian(), Tr.PerfectJacobian(), Kij);
-   mat1.SetSize(dudx.Size());
-   Mult(Tr.PerfectJacobian(), dudx, mat1);
-   Kij *= 0.01*res.Norml2()/(mat1.FNorm() + 1e-10);
+   vec1.SetSize(dudx.Size());
+   Tr.PerfectJacobian().Mult(dudx, vec1);
+   Kij *= 0.01*fabs(res)/(vec1.Norml2() + 1e-10);
 }
 
 //
 int main(int argc, char *argv[])
 {
+   // 0. Initialize MPI and HYPRE.
+   Mpi::Init();
+   int num_procs = Mpi::WorldSize();
+   int myid = Mpi::WorldRank();
+   Hypre::Init();
+
    // 1. Parse command-line options.
    const char *device_config = "cpu";
    int precision = 8;
@@ -126,7 +136,7 @@ int main(int argc, char *argv[])
    OptionsParser args(argc, argv);
 
    // Setup parameters
-   problem = 0;
+   problem = 4;
    args.AddOption(&problem, "-p", "--problem",
                   "Problem setup to use. See options in velocity_function().");
 
@@ -217,29 +227,32 @@ int main(int argc, char *argv[])
       mesh.UniformRefinement();
    }
 
+   ParMesh pmesh(MPI_COMM_WORLD, mesh);
+   mesh.Clear();
+
    // 5. Define the discontinuous DG finite element space of the given
    //    polynomial order on the refined mesh.
    H1_FECollection fec(order, dim);
-   FiniteElementSpace fes(&mesh, &fec, dim);
+   ParFiniteElementSpace fes(&pmesh, &fec);
 
    cout << "Number of unknowns: " << fes.GetVSize() << endl;
 
    // 6. Set up and assemble the bilinear and linear forms corresponding to the
    //    DG discretization. The DGTraceIntegrator involves integrals over mesh
    //    interior faces.
-   VectorFunctionCoefficient u0(dim, u0_function);
+   FunctionCoefficient u0(u0_function);
 
    // 7. Define the initial conditions, save the corresponding grid function to
    //    a file and (optionally) save data in the VisIt format and initialize
    //    GLVis visualization.
-   GridFunction u(&fes);
+   ParGridFunction u(&fes);
    u.ProjectCoefficient(u0);
 
    {
-      ofstream omesh("ex51.mesh");
+      ofstream omesh("ex50p.mesh");
       omesh.precision(precision);
-      mesh.Print(omesh);
-      ofstream osol("ex51-init.gf");
+      pmesh.Print(omesh);
+      ofstream osol("ex50p-init.gf");
       osol.precision(precision);
       u.Save(osol);
    }
@@ -252,17 +265,17 @@ int main(int argc, char *argv[])
       if (binary)
       {
 #ifdef MFEM_USE_SIDRE
-         dc = new SidreDataCollection("Example51", &mesh);
+         dc = new SidreDataCollection("Example50p", &pmesh);
 #else
          MFEM_ABORT("Must build with MFEM_USE_SIDRE=YES for binary output.");
 #endif
       }
       else
       {
-         dc = new VisItDataCollection("Example51", &mesh);
+         dc = new VisItDataCollection("Example50p", &pmesh);
          dc->SetPrecision(precision);
       }
-      dc->SetPrefixPath("Example51");
+      dc->SetPrefixPath("Example50p");
       dc->RegisterField("solution", &u);
       dc->SetCycle(0);
       dc->SetTime(0.0);
@@ -272,7 +285,7 @@ int main(int argc, char *argv[])
    ParaViewDataCollection *pd = NULL;
    if (paraview)
    {
-      pd = new ParaViewDataCollection("Example51", &mesh);
+      pd = new ParaViewDataCollection("Example50", &pmesh);
       pd->SetPrefixPath("ParaView");
       pd->RegisterField("solution", &u);
       pd->SetLevelsOfDetail(order);
@@ -299,7 +312,7 @@ int main(int argc, char *argv[])
       else
       {
          sout.precision(precision);
-         sout << "solution\n" << mesh << u;
+         sout << "solution\n" << pmesh << u;
          sout << "pause\n";
          sout << flush;
          cout << "GLVis visualization paused."
@@ -308,21 +321,30 @@ int main(int argc, char *argv[])
    }
 
    // 8.
-   StabilizedVectorConvectionNLFIntegrator::TauFunc_t tau;
-   StabilizedVectorConvectionNLFIntegrator::KappaFunc_t kdc;
-   StabilizedVectorConvectionNLFIntegrator::KappaMatFunc_t kmat;
+   ConstantCoefficient mass(1.0);
+   Vector a(dim); a = 1.0;
+   VectorConstantCoefficient conv(a);
+   ConstantCoefficient diff(0.0);
+   ConstantCoefficient react(0.0);
+   ConstantCoefficient force(0.0);
+
+   StabilizedCDRIntegrator::TauFunc_t tau;
+   StabilizedCDRIntegrator::KappaFunc_t kdc;
+   StabilizedCDRIntegrator::KappaMatFunc_t kdc_mat;
    tau = Tau;
    kdc = Kdc;
-   kmat = Kmat;
+   kdc_mat = Kmat;
 
-   TimeDepNonlinearForm form(&fes);
-   form.AddTimeDepDomainIntegrator(new StabilizedVectorConvectionNLFIntegrator(
-                                      &tau, &kmat));
+   ParTimeDepNonlinearForm form(&fes);
+   form.AddTimeDepDomainIntegrator(
+      new StabilizedCDRIntegrator(&mass, &conv, &diff, &react, &force,
+                                  &tau, &kdc));
+
 
    // 8. Define the time-dependent evolution operator describing the ODE
    //    right-hand side, and perform time-integration (looping over the time
    //    iterations, ti, with a time-step dt).
-   FGMRESSolver gmres;
+   FGMRESSolver gmres(MPI_COMM_WORLD);
    gmres.iterative_mode = false;
    gmres.SetRelTol(GMRES_RelTol);
    gmres.SetAbsTol(1e-12);
@@ -330,7 +352,7 @@ int main(int argc, char *argv[])
    gmres.SetPrintLevel(-1);
 
    // Set up the Newton solver
-   NewtonSolver newton_solver;
+   NewtonSolver newton_solver(MPI_COMM_WORLD);
    newton_solver.iterative_mode = true;
    newton_solver.SetPrintLevel(1);
    newton_solver.SetRelTol(Newton_RelTol);
@@ -358,7 +380,7 @@ int main(int argc, char *argv[])
 
          if (visualization)
          {
-            sout << "solution\n" << mesh << u << flush;
+            sout << "solution\n" << pmesh << u << flush;
          }
 
          if (visit)
@@ -378,9 +400,9 @@ int main(int argc, char *argv[])
    }
 
    // 9. Save the final solution. This output can be viewed later using GLVis:
-   //    "glvis -m ex51.mesh -g ex51-final.gf".
+   //    "glvis -m ex50.mesh -g ex50-final.gf".
    {
-      ofstream osol("ex51-final.gf");
+      ofstream osol("ex50-final.gf");
       osol.precision(precision);
       u.Save(osol);
    }

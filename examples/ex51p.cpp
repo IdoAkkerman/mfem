@@ -118,6 +118,12 @@ void Kmat (ElementTransformation& Tr,
 //
 int main(int argc, char *argv[])
 {
+   // 0. Initialize MPI and HYPRE.
+   Mpi::Init();
+   int num_procs = Mpi::WorldSize();
+   int myid = Mpi::WorldRank();
+   Hypre::Init();
+
    // 1. Parse command-line options.
    const char *device_config = "cpu";
    int precision = 8;
@@ -217,10 +223,13 @@ int main(int argc, char *argv[])
       mesh.UniformRefinement();
    }
 
+   ParMesh pmesh(MPI_COMM_WORLD, mesh);
+   mesh.Clear();
+
    // 5. Define the discontinuous DG finite element space of the given
    //    polynomial order on the refined mesh.
    H1_FECollection fec(order, dim);
-   FiniteElementSpace fes(&mesh, &fec, dim);
+   ParFiniteElementSpace fes(&pmesh, &fec, dim);
 
    cout << "Number of unknowns: " << fes.GetVSize() << endl;
 
@@ -232,14 +241,14 @@ int main(int argc, char *argv[])
    // 7. Define the initial conditions, save the corresponding grid function to
    //    a file and (optionally) save data in the VisIt format and initialize
    //    GLVis visualization.
-   GridFunction u(&fes);
+   ParGridFunction u(&fes);
    u.ProjectCoefficient(u0);
 
    {
-      ofstream omesh("ex51.mesh");
+      ofstream omesh("ex51p.mesh");
       omesh.precision(precision);
-      mesh.Print(omesh);
-      ofstream osol("ex51-init.gf");
+      pmesh.Print(omesh);
+      ofstream osol("ex51p-init.gf");
       osol.precision(precision);
       u.Save(osol);
    }
@@ -252,17 +261,17 @@ int main(int argc, char *argv[])
       if (binary)
       {
 #ifdef MFEM_USE_SIDRE
-         dc = new SidreDataCollection("Example51", &mesh);
+         dc = new SidreDataCollection("Example51p", &pmesh);
 #else
          MFEM_ABORT("Must build with MFEM_USE_SIDRE=YES for binary output.");
 #endif
       }
       else
       {
-         dc = new VisItDataCollection("Example51", &mesh);
+         dc = new VisItDataCollection("Example51p", &pmesh);
          dc->SetPrecision(precision);
       }
-      dc->SetPrefixPath("Example51");
+      dc->SetPrefixPath("Example51p");
       dc->RegisterField("solution", &u);
       dc->SetCycle(0);
       dc->SetTime(0.0);
@@ -272,7 +281,7 @@ int main(int argc, char *argv[])
    ParaViewDataCollection *pd = NULL;
    if (paraview)
    {
-      pd = new ParaViewDataCollection("Example51", &mesh);
+      pd = new ParaViewDataCollection("Example51", &pmesh);
       pd->SetPrefixPath("ParaView");
       pd->RegisterField("solution", &u);
       pd->SetLevelsOfDetail(order);
@@ -299,7 +308,7 @@ int main(int argc, char *argv[])
       else
       {
          sout.precision(precision);
-         sout << "solution\n" << mesh << u;
+         sout << "solution\n" << pmesh << u;
          sout << "pause\n";
          sout << flush;
          cout << "GLVis visualization paused."
@@ -315,14 +324,14 @@ int main(int argc, char *argv[])
    kdc = Kdc;
    kmat = Kmat;
 
-   TimeDepNonlinearForm form(&fes);
+   ParTimeDepNonlinearForm form(&fes);
    form.AddTimeDepDomainIntegrator(new StabilizedVectorConvectionNLFIntegrator(
                                       &tau, &kmat));
 
    // 8. Define the time-dependent evolution operator describing the ODE
    //    right-hand side, and perform time-integration (looping over the time
    //    iterations, ti, with a time-step dt).
-   FGMRESSolver gmres;
+   FGMRESSolver gmres(MPI_COMM_WORLD);
    gmres.iterative_mode = false;
    gmres.SetRelTol(GMRES_RelTol);
    gmres.SetAbsTol(1e-12);
@@ -330,7 +339,7 @@ int main(int argc, char *argv[])
    gmres.SetPrintLevel(-1);
 
    // Set up the Newton solver
-   NewtonSolver newton_solver;
+   NewtonSolver newton_solver(MPI_COMM_WORLD);
    newton_solver.iterative_mode = true;
    newton_solver.SetPrintLevel(1);
    newton_solver.SetRelTol(Newton_RelTol);
@@ -358,7 +367,7 @@ int main(int argc, char *argv[])
 
          if (visualization)
          {
-            sout << "solution\n" << mesh << u << flush;
+            sout << "solution\n" << pmesh << u << flush;
          }
 
          if (visit)
@@ -380,7 +389,7 @@ int main(int argc, char *argv[])
    // 9. Save the final solution. This output can be viewed later using GLVis:
    //    "glvis -m ex51.mesh -g ex51-final.gf".
    {
-      ofstream osol("ex51-final.gf");
+      ofstream osol("ex51p-final.gf");
       osol.precision(precision);
       u.Save(osol);
    }
