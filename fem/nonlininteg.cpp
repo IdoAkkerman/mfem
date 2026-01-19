@@ -1267,6 +1267,10 @@ void StabilizedCDRIntegrator::AssembleElementVector(
    const Vector &elrate,
    Vector &elvect)
 {
+
+//std::cout<<"elfun  = ";   elfun.Print(std::cout, 6666);
+//std::cout<<"elrate = ";    elrate.Print(std::cout, 6666);   
+   
    const int nd = el.GetDof();
    const int dim = el.GetDim();
 
@@ -1345,6 +1349,7 @@ void StabilizedCDRIntegrator::AssembleElementVector(
          dshape.AddMult_a(w, a, elvect);
       }
    }
+ // std::cout<<"elrhs  = ";   elvect.Print(std::cout, 6666);
 }
 
 void StabilizedCDRIntegrator::AssembleElementGrad(

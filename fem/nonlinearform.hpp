@@ -438,8 +438,9 @@ protected:
    Vector x0;
    real_t dt, t;
 
-   mutable Vector x;
+   mutable Vector x;//, aux3;
 
+ //  const Vector &Prolongate2(const Vector &dx) const;
 public:
    /// Construct a TimeDepNonlinearForm on the given FiniteElementSpace, @a f.
    /** As an Operator, the TimeDepNonlinearForm has input and output size equal to the
@@ -449,7 +450,7 @@ public:
    { }
 
    ///
-   void SetTimeAndSolution(const real_t &t_,
+   virtual void SetTimeAndSolution(const real_t &t_,
                            const real_t &dt_,
                            const Vector &x0_);
 
@@ -520,6 +521,10 @@ public:
        vectors, i.e. their size must be fes->GetTrueVSize(). */
    void Mult(const Vector &x, Vector &y) const override;
 
+
+
+   Operator &GetGradient(const Vector &x) const override { return GetGradient(x, true); }
+
    /** @brief Compute the gradient Operator of the TimeDepNonlinearForm corresponding
        to the state @a x with optional finalization and elimintaion. */
    /** @see GetGradient(const Vector &) */
@@ -535,6 +540,8 @@ public:
     the Cartesian product of multiple FiniteElementSpace%s. */
 class BlockTimeDepNonlinearForm : public BlockNonlinearForm
 {
+   mutable BlockVector aux3;
+   const BlockVector &Prolongate2(const BlockVector &bx) const;  
 protected:
 
    /// Set of Time dependent Domain Integrators to be assembled (added).
@@ -576,6 +583,12 @@ protected:
    mutable Vector x;
 
 public:
+   /// Construct a BlockTimeDepNonlinearForm on the given set of FiniteElementSpace%s.
+   BlockTimeDepNonlinearForm()
+      : BlockNonlinearForm()
+   {}
+
+
    /// Construct a BlockTimeDepNonlinearForm on the given set of FiniteElementSpace%s.
    BlockTimeDepNonlinearForm(Array<FiniteElementSpace *> &f)
       : BlockNonlinearForm(f)
