@@ -380,7 +380,6 @@ int main(int argc, char *argv[])
       MFEM_VERIFY(bnd_flag[b], "Not all boundaries have a boundary condition set.");
    }
 
-
    // Select the time integrator
    unique_ptr<ODESolver> ode_solver = ODESolver::Select(ode_solver_type);
    ODESolverWithStates*  ode_solver_ws = dynamic_cast<ODESolverWithStates*>
@@ -402,6 +401,7 @@ int main(int argc, char *argv[])
    }
    else
    {
+      fecs[0] = new H1_FECollection(order, dim);
       fecs[1] = new H1_FECollection(order, dim);
    }
 
@@ -651,7 +651,8 @@ int main(int argc, char *argv[])
    // Loop till final time reached
    while (t < t_final)
    {
-      // Print header      if (Mpi::Root())
+      // Print header
+      if (Mpi::Root())
       {
          line(80);
          cout<<std::defaultfloat<<std::setprecision(4);
