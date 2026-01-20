@@ -1076,6 +1076,28 @@ void ParBlockTimeDepNonlinearForm::SetParSpaces(Array<ParFiniteElementSpace *>
    }
 }
 
+void ParBlockTimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
+                                                      const real_t &dt_,
+                                                      const Vector &x0_)
+{
+   t = t_;
+   dt = dt_;
+   for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
+   for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
+   for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
+   for (int i = 0; i < tbfnfi.Size(); i++) { tbfnfi[i]->SetTimeStep(dt); }
+
+   xs_true.Update(const_cast<Vector &>(x0_), block_trueOffsets);
+   xs0.Update(block_offsets);
+
+   for (int s=0; s<fes.Size(); s++)
+   {
+      fes[s]->GetProlongationMatrix()->Mult(
+         xs_true.GetBlock(s), xs0.GetBlock(s));
+   }
+}
+
+
 ParFiniteElementSpace * ParBlockTimeDepNonlinearForm::ParFESpace(int k)
 {
    return (ParFiniteElementSpace *)fes[k];
@@ -1154,23 +1176,25 @@ real_t ParBlockTimeDepNonlinearForm::GetEnergy(const Vector &dx) const
 
 void ParBlockTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
 {
-   add(x0,dt,dx,x);   // x = x0 + dt*dx
 
-   // xs_true is not modified, so const_cast is okay
-   xs_true.Update(const_cast<Vector &>(x), block_trueOffsets);
-   dxs_true.Update(const_cast<Vector &>(dx), block_trueOffsets);
-   ys_true.Update(y, block_trueOffsets);
    xs.Update(block_offsets);
    dxs.Update(block_offsets);
-   ys.Update(block_offsets);
-
+   dxs_true.Update(const_cast<Vector &>(dx), block_trueOffsets);
    for (int s=0; s<fes.Size(); ++s)
    {
       fes[s]->GetProlongationMatrix()->Mult(
-         xs_true.GetBlock(s), xs.GetBlock(s));
-      fes[s]->GetProlongationMatrix()->Mult(
          dxs_true.GetBlock(s), dxs.GetBlock(s));
    }
+
+   add(xs0,dt,dxs,xs);   // x = x0 + dt*dx
+
+   ys.Update(block_offsets);
+   if (needs_prolongation)
+   {
+      aux2.Update(block_offsets);
+   }
+   BlockVector &pby = needs_prolongation ? aux2 : ys;
+
 
    BlockTimeDepNonlinearForm::MultBlocked(xs, dxs, ys);
 
@@ -1241,7 +1265,7 @@ void ParBlockTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
          delete el_x[s];
       }
    }
-
+   ys_true.Update(y, block_trueOffsets);
    for (int s=0; s<fes.Size(); ++s)
    {
       fes[s]->GetProlongationMatrix()->MultTranspose(
@@ -1249,9 +1273,7 @@ void ParBlockTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
 
       ys_true.GetBlock(s).SetSubVector(*ess_tdofs[s], 0.0);
    }
-
    ys_true.SyncFromBlocks();
-   y.SyncMemory(ys_true);
 }
 
 /// Return the local gradient matrix for the given true-dof vector x
@@ -1427,27 +1449,48 @@ BlockOperator & ParBlockTimeDepNonlinearForm::GetGradient(
       }
    }
 
-   add(x0,dt,dx,x);   // x = x0 + dt*dx
-
-   // xs_true is not modified, so const_cast is okay
-   xs_true.Update(const_cast<Vector &>(x), block_trueOffsets);
    xs.Update(block_offsets);
-
-   for (int s=0; s<fes.Size(); ++s)
-   {
-      fes[s]->GetProlongationMatrix()->Mult(
-         xs_true.GetBlock(s), xs.GetBlock(s));
-   }
-
-   // xs_true is not modified, so const_cast is okay
-   dxs_true.Update(const_cast<Vector &>(dx), block_trueOffsets);
    dxs.Update(block_offsets);
-
+   dxs_true.Update(const_cast<Vector &>(dx), block_trueOffsets);
    for (int s=0; s<fes.Size(); ++s)
    {
       fes[s]->GetProlongationMatrix()->Mult(
          dxs_true.GetBlock(s), dxs.GetBlock(s));
    }
+
+   add(xs0,dt,dxs,xs);   // x = x0 + dt*dx
+
+
+
+
+   /*
+      add(x0,dt,dx,x);   // x = x0 + dt*dx
+
+      // xs_true is not modified, so const_cast is okay
+      xs_true.Update(const_cast<Vector &>(x), block_trueOffsets);
+      xs.Update(block_offsets);
+
+      for (int s=0; s<fes.Size(); ++s)
+      {
+         fes[s]->GetProlongationMatrix()->Mult(
+            xs_true.GetBlock(s), xs.GetBlock(s));
+      }
+
+      // xs_true is not modified, so const_cast is okay
+      dxs_true.Update(const_cast<Vector &>(dx), block_trueOffsets);
+      dxs.Update(block_offsets);
+
+      for (int s=0; s<fes.Size(); ++s)
+      {
+         fes[s]->GetProlongationMatrix()->Mult(
+            dxs_true.GetBlock(s), dxs.GetBlock(s));
+      }*/
+
+
+
+
+
+
 
    if (fnfi.Size() > 0)
    {

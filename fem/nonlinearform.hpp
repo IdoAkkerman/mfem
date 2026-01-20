@@ -595,9 +595,9 @@ public:
    {}
 
    ///
-   void SetTimeAndSolution(const real_t &t_,
-                           const real_t &dt_,
-                           const Vector &x0_);
+   virtual void SetTimeAndSolution(const real_t &t_,
+                                   const real_t &dt_,
+                                   const Vector &x0_);
 
    /// Adds new Time dependent Domain Integrator.
    void AddTimeDepDomainIntegrator(BlockTimeDepNonlinearFormIntegrator *nlfi)

@@ -257,6 +257,7 @@ public:
 class ParBlockTimeDepNonlinearForm : public BlockTimeDepNonlinearForm
 {
 protected:
+   mutable BlockVector xs0;
    mutable BlockVector xs_true, dxs_true, ys_true;
    mutable Array2D<OperatorHandle *> phBlockGrad;
    mutable BlockOperator *pBlockGrad;
@@ -273,6 +274,11 @@ public:
    /** @brief Construct a ParBlockNonlinearForm on the given set of
        ParFiniteElementSpace%s. */
    ParBlockTimeDepNonlinearForm(Array<ParFiniteElementSpace *> &pf);
+
+   ///
+   void SetTimeAndSolution(const real_t &t_,
+                           const real_t &dt_,
+                           const Vector &x0_) override;
 
    /// Return the @a k-th parallel FE space of the ParBlockNonlinearForm.
    ParFiniteElementSpace *ParFESpace(int k);

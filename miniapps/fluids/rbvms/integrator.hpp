@@ -240,18 +240,23 @@ private:
    // Compute the norms for each component
    void Norms(const Vector &r,Vector& norm) const;
 
+   bool parallel = false;
+
 public:
    // Constructor, provide MPI context and component subdivision
    NewtonSystemSolver( Array<int> &offsets)
       : bOffsets(offsets)
    {
       nvar = bOffsets.Size()-1;
+      parallel = false;
+
    }
 
    NewtonSystemSolver(MPI_Comm comm_, Array<int> &offsets)
       : NewtonSolver(comm_), bOffsets(offsets)
    {
       nvar = bOffsets.Size()-1;
+      parallel = true;
    }
 
    /// Solve the nonlinear system with right-hand side @a b.

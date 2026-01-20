@@ -1066,7 +1066,14 @@ void NewtonSystemSolver::Norms(const Vector &r, Vector& lnorm) const
    for (int i = 0; i < nvar; ++i)
    {
       Vector r_i(r.GetData() + bOffsets[i], bOffsets[i+1] - bOffsets[i]);
-      lnorm[i] = r_i*r_i;//sqrt(InnerProduct(MPI_COMM_WORLD, r_i, r_i));
+      if (parallel)
+      {
+         lnorm[i] = sqrt(InnerProduct(MPI_COMM_WORLD, r_i, r_i));
+      }
+      else
+      {
+         lnorm[i] = sqrt(r_i*r_i);
+      }
       MFEM_VERIFY(IsFinite(lnorm[i]), "norm[" << i << "] = " << lnorm[i]);
    }
 }
@@ -1177,6 +1184,7 @@ void NewtonSystemSolver::Mult(const Vector &b, Vector &x) const
       {
          r -= b;
       }
+
       Norms(r, norm);
    }
 

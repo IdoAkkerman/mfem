@@ -416,12 +416,12 @@ int main(int argc, char *argv[])
    {
       Array<int> tdof(num_procs),udof(num_procs),pdof(num_procs);
       tdof = 0;
-      tdof[myid] = spaces[0]->TrueVSize();
+      tdof[myid] = spaces[0]->GetTrueVSize();
       MPI_Reduce(tdof.GetData(), udof.GetData(), num_procs,
                  MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
 
       tdof = 0;
-      tdof[myid] = spaces[1]->TrueVSize();
+      tdof[myid] = spaces[1]->GetTrueVSize();
       MPI_Reduce(tdof.GetData(), pdof.GetData(), num_procs,
                  MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
 
@@ -435,6 +435,26 @@ int main(int argc, char *argv[])
          mfem::out << "Number of finite element unknowns per partition:\n";
          mfem::out <<  "\tVelocity = "; udof.Print(mfem::out, num_procs);
          mfem::out <<  "\tPressure = "; pdof.Print(mfem::out, num_procs);
+         for (int s = 0; s < num_procs; s++) { pdof[s] += udof[s]; }
+         mfem::out <<  "\tTotal    = "; pdof.Print(mfem::out, num_procs);
+      }
+      tdof = 0;
+      tdof[myid] = spaces[0]->GetVSize();
+      MPI_Reduce(tdof.GetData(), udof.GetData(), num_procs,
+                 MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+
+      tdof = 0;
+      tdof[myid] = spaces[1]->GetVSize();
+      MPI_Reduce(tdof.GetData(), pdof.GetData(), num_procs,
+                 MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+
+      if (Mpi::Root())
+      {
+         mfem::out << "Number of finite element unknowns per partition:\n";
+         mfem::out <<  "\tVelocity = "; udof.Print(mfem::out, num_procs);
+         mfem::out <<  "\tPressure = "; pdof.Print(mfem::out, num_procs);
+         for (int s = 0; s < num_procs; s++) { pdof[s] += udof[s]; }
+         mfem::out <<  "\tTotal    = "; pdof.Print(mfem::out, num_procs);
       }
    }
 
@@ -457,7 +477,8 @@ int main(int argc, char *argv[])
    jac_prec.SetPreconditioner(1, pc_cont);
 
    // Set up the Jacobian solver
-   GeneralResidualMonitor j_monitor("\t\tFGMRES", 100);
+   int printInterval = Mpi::Root() ?  100 : -1;
+   GeneralResidualMonitor j_monitor("\t\tFGMRES", printInterval);
    FGMRESSolver j_gmres(MPI_COMM_WORLD);
    j_gmres.iterative_mode = false;
    j_gmres.SetRelTol(GMRES_RelTol);
@@ -469,7 +490,7 @@ int main(int argc, char *argv[])
 
    // Set up the Newton solver
    NewtonSystemSolver newton_solver(MPI_COMM_WORLD,bOffsets);
-   // NewtonSolver newton_solver;
+   // NewtonSolver newton_solver(MPI_COMM_WORLD);
    newton_solver.iterative_mode = true;
    newton_solver.SetPrintLevel(1);
    newton_solver.SetRelTol(Newton_RelTol);
@@ -665,7 +686,6 @@ int main(int argc, char *argv[])
       }
       // Actual time step
       xp0 = xp;
-
       ode_solver->Step(xp, t, dt);
       si++;
 
@@ -735,7 +755,8 @@ int main(int argc, char *argv[])
          // Interpolate solution
          real_t fac = (t-dt_vis*vi)/dt;
 
-         // Report to screen         if (Mpi::Root())
+         // Report to screen
+         if (Mpi::Root())
          {
             line(80);
             cout << "Visit output: " <<vi << endl;
