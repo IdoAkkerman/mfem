@@ -440,7 +440,7 @@ protected:
 
    mutable Vector x;//, aux3;
 
- //  const Vector &Prolongate2(const Vector &dx) const;
+   //  const Vector &Prolongate2(const Vector &dx) const;
 public:
    /// Construct a TimeDepNonlinearForm on the given FiniteElementSpace, @a f.
    /** As an Operator, the TimeDepNonlinearForm has input and output size equal to the
@@ -451,8 +451,8 @@ public:
 
    ///
    virtual void SetTimeAndSolution(const real_t &t_,
-                           const real_t &dt_,
-                           const Vector &x0_);
+                                   const real_t &dt_,
+                                   const Vector &x0_);
 
    /// Adds new Time dependent Domain Integrator.
    void AddTimeDepDomainIntegrator(TimeDepNonlinearFormIntegrator *nlfi)
@@ -541,7 +541,7 @@ public:
 class BlockTimeDepNonlinearForm : public BlockNonlinearForm
 {
    mutable BlockVector aux3;
-   const BlockVector &Prolongate2(const BlockVector &bx) const;  
+   const BlockVector &Prolongate2(const BlockVector &bx) const;
 protected:
 
    /// Set of Time dependent Domain Integrators to be assembled (added).

@@ -22,12 +22,12 @@ if (MFEM_ENABLE_TESTING)
   add_test(NAME rbvms_ser COMMAND rbvms -no-vis)
 endif()
 
-#if (MFEM_USE_MPI)
-#  add_mfem_miniapp(prbvms
-#  MAIN prbvms.cpp
-#  EXTRA_SOURCES integrator.cpp
-#  EXTRA_HEADERS integrator.hpp
-#  LIBRARIES mfem)
+if (MFEM_USE_MPI)
+  add_mfem_miniapp(prbvms
+  MAIN prbvms.cpp
+  EXTRA_SOURCES integrator.cpp
+  EXTRA_HEADERS integrator.hpp
+  LIBRARIES mfem)
 
   # Add the corresponding tests to the "test" target
 #  if (MFEM_ENABLE_TESTING)
@@ -37,7 +37,7 @@ endif()
 #      $<TARGET_FILE:prbvms> -no-vis
 #      ${MPIEXEC_POSTFLAGS})
 #  endif()
-#endif()
+endif()
 
 
 

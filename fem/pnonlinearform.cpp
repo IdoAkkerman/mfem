@@ -797,8 +797,6 @@ void ParTimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
 {
    t = t_;
    dt = dt_;
-
- //  std::cout<<"SetTimeAndSolution"<<std::endl;
    for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
    for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
    for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
@@ -833,46 +831,45 @@ real_t ParTimeDepNonlinearForm::GetParGridFunctionEnergy(const Vector &x) const
 
 void ParTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
 {
-//std::cout<<814<<std::endl;
    TimeDepNonlinearForm::Mult(dx, y); // x --(P)--> aux1 --(A_local)--> aux2
 
- /* TBD   if (fnfi.Size())
-   {
-      MFEM_VERIFY(!TimeDepNonlinearForm::ext, "Not implemented (extensions + faces");
-      // Terms over shared interior faces in parallel.
-      ParFiniteElementSpace *pfes = ParFESpace();
-      ParMesh *pmesh = pfes->GetParMesh();
-      FaceElementTransformations *tr;
-      const FiniteElement *fe1, *fe2;
-      Array<int> vdofs1, vdofs2;
-      Vector el_x, el_y;
+   /* if (fnfi.Size())
+    {
+       MFEM_VERIFY(!TimeDepNonlinearForm::ext, "Not implemented (extensions + faces");
+       // Terms over shared interior faces in parallel.
+       ParFiniteElementSpace *pfes = ParFESpace();
+       ParMesh *pmesh = pfes->GetParMesh();
+       FaceElementTransformations *tr;
+       const FiniteElement *fe1, *fe2;
+       Array<int> vdofs1, vdofs2;
+       Vector el_x, el_y;
 
-      aux1.HostReadWrite();
-      X.MakeRef(aux1, 0); // aux1 contains P.x
-      X.ExchangeFaceNbrData();
-      const int n_shared_faces = pmesh->GetNSharedFaces();
-      for (int i = 0; i < n_shared_faces; i++)
-      {
-         tr = pmesh->GetSharedFaceTransformations(i, true);
-         int Elem2NbrNo = tr->Elem2No - pmesh->GetNE();
+       aux1.HostReadWrite();
+       X.MakeRef(aux1, 0); // aux1 contains P.x
+       X.ExchangeFaceNbrData();
+       const int n_shared_faces = pmesh->GetNSharedFaces();
+       for (int i = 0; i < n_shared_faces; i++)
+       {
+          tr = pmesh->GetSharedFaceTransformations(i, true);
+          int Elem2NbrNo = tr->Elem2No - pmesh->GetNE();
 
-         fe1 = pfes->GetFE(tr->Elem1No);
-         fe2 = pfes->GetFaceNbrFE(Elem2NbrNo);
+          fe1 = pfes->GetFE(tr->Elem1No);
+          fe2 = pfes->GetFaceNbrFE(Elem2NbrNo);
 
-         pfes->GetElementVDofs(tr->Elem1No, vdofs1);
-         pfes->GetFaceNbrElementVDofs(Elem2NbrNo, vdofs2);
+          pfes->GetElementVDofs(tr->Elem1No, vdofs1);
+          pfes->GetFaceNbrElementVDofs(Elem2NbrNo, vdofs2);
 
-         el_x.SetSize(vdofs1.Size() + vdofs2.Size());
-         X.GetSubVector(vdofs1, el_x.GetData());
-         X.FaceNbrData().GetSubVector(vdofs2, el_x.GetData() + vdofs1.Size());
+          el_x.SetSize(vdofs1.Size() + vdofs2.Size());
+          X.GetSubVector(vdofs1, el_x.GetData());
+          X.FaceNbrData().GetSubVector(vdofs2, el_x.GetData() + vdofs1.Size());
 
-         for (int k = 0; k < fnfi.Size(); k++)
-         {
-            fnfi[k]->AssembleFaceVector(*fe1, *fe2, *tr, el_x, el_y);
-            aux2.AddElementVector(vdofs1, el_y.GetData());
-         }
-      }
-   }*/
+          for (int k = 0; k < fnfi.Size(); k++)
+          {
+             fnfi[k]->AssembleFaceVector(*fe1, *fe2, *tr, el_x, el_y);
+             aux2.AddElementVector(vdofs1, el_y.GetData());
+          }
+       }
+    }*/
 
    P->MultTranspose(aux2, y);
 
@@ -880,23 +877,10 @@ void ParTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
    const auto idx = ess_tdof_list.Read();
    auto Y_RW = y.ReadWrite();
    mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { Y_RW[idx[i]] = 0.0; });
-   
-   /*
-   Vector ys_true;
-   // Finalize assembly
-   ParFiniteElementSpace *pfes = ParFESpace();
-  // for (int s=0; s<pfes.Size(); ++s)
-//  {
-      pfes->GetProlongationMatrix()->MultTranspose(
-         y, ys_true);
-    //  ys_true.SetSubVector(ess_tdof, 0.0);
-  // }
-
-  // ys_true.SyncFromBlocks();
-   y.SyncMemory(ys_true);*/
 }
 
-const SparseMatrix &ParTimeDepNonlinearForm::GetLocalGradient(const Vector &dx) const
+const SparseMatrix &ParTimeDepNonlinearForm::GetLocalGradient(
+   const Vector &dx) const
 {
    MFEM_VERIFY(TimeDepNonlinearForm::ext == nullptr,
                "this method is not supported yet with partial assembly");
@@ -907,7 +891,7 @@ const SparseMatrix &ParTimeDepNonlinearForm::GetLocalGradient(const Vector &dx) 
 }
 
 void ParTimeDepNonlinearForm::GradientSharedFaces(const Vector &x,
-                                           int skip_zeros) const
+                                                  int skip_zeros) const
 {
    ParFiniteElementSpace *pfes = ParFESpace();
    ParMesh *pmesh = pfes->GetParMesh();
@@ -1050,14 +1034,16 @@ void ParTimeDepNonlinearForm::Update()
 
 
 
-ParBlockTimeDepNonlinearForm::ParBlockTimeDepNonlinearForm(Array<ParFiniteElementSpace *> &pf)
+ParBlockTimeDepNonlinearForm::ParBlockTimeDepNonlinearForm(
+   Array<ParFiniteElementSpace *> &pf)
    : BlockTimeDepNonlinearForm()
 {
    pBlockGrad = NULL;
    SetParSpaces(pf);
 }
 
-void ParBlockTimeDepNonlinearForm::SetParSpaces(Array<ParFiniteElementSpace *> &pf)
+void ParBlockTimeDepNonlinearForm::SetParSpaces(Array<ParFiniteElementSpace *>
+                                                &pf)
 {
    delete pBlockGrad;
    pBlockGrad = NULL;
@@ -1095,7 +1081,8 @@ ParFiniteElementSpace * ParBlockTimeDepNonlinearForm::ParFESpace(int k)
    return (ParFiniteElementSpace *)fes[k];
 }
 
-const ParFiniteElementSpace *ParBlockTimeDepNonlinearForm::ParFESpace(int k) const
+const ParFiniteElementSpace *ParBlockTimeDepNonlinearForm::ParFESpace(
+   int k) const
 {
    return (const ParFiniteElementSpace *)fes[k];
 }
@@ -1321,7 +1308,7 @@ void ParBlockTimeDepNonlinearForm::SetGradientType(Operator::Type tid)
 }
 
 void ParBlockTimeDepNonlinearForm::GradientSharedFaces(const BlockVector &xs,
-                                                int skip_zeros) const
+                                                       int skip_zeros) const
 {
    // Terms over shared interior faces in parallel.
    ParMesh *pmesh = ParFESpace(0)->GetParMesh();
@@ -1420,7 +1407,8 @@ void ParBlockTimeDepNonlinearForm::GradientSharedFaces(const BlockVector &xs,
    }
 }
 
-BlockOperator & ParBlockTimeDepNonlinearForm::GetGradient(const Vector &dx) const
+BlockOperator & ParBlockTimeDepNonlinearForm::GetGradient(
+   const Vector &dx) const
 {
    if (pBlockGrad == NULL)
    {

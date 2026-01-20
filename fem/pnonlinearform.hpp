@@ -268,7 +268,7 @@ public:
    real_t GetEnergy(const Vector &x) const override;
 
    /// Construct an empty ParBlockNonlinearForm. Initialize with SetParSpaces().
-  // ParBlockTimeDepNonlinearForm() : pBlockGrad(NULL) { }
+   // ParBlockTimeDepNonlinearForm() : pBlockGrad(NULL) { }
 
    /** @brief Construct a ParBlockNonlinearForm on the given set of
        ParFiniteElementSpace%s. */

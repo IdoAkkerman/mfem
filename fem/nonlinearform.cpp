@@ -1782,47 +1782,20 @@ real_t TimeDepNonlinearForm::GetGridFunctionEnergy(const Vector &dx) const
 }
 
 void TimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
-{//std::cout<<1785<<std::endl;
-  // std::cout<<std::flush;
-   MPI_Barrier(MPI_COMM_WORLD);
-   const Vector &pdx = Prolongate(dx);//std::cout<<1788<<std::endl;
+{
+   const Vector &pdx = Prolongate(dx);
 
-//std::cout<<"pdx = "<<pdx.Size()<<std::endl;
-//std::cout<<"dx  = "<<dx.Size()<<std::endl;
-//std::cout<<"x0  = "<<x0.Size()<<std::endl;
-//std::cout<<"x   = "<<x.Size()<<std::endl;
-   std::cout<<std::flush;
-   MPI_Barrier(MPI_COMM_WORLD);
    add(x0,dt,pdx,x);   // x = x0 + dt*dx
-//std::cout<<x.Norml2()<<std::endl;
-//std::cout<<dx.Norml2()<<std::endl;
 
-  // const Vector &px = Prolongate(x);//std::cout<<1790000<<std::endl;
-   
-   
    const Vector &px = x;
-   
-   
-   
-   
-   
-   
-   
-//std::cout<<1791000<<std::endl;
-//std::cout<<px.Norml2()<<std::endl;
-//std::cout<<pdx.Norml2()<<std::endl;
-
-
-//MFEM_VERIFY(false,"");
 
    if (P) { aux2.SetSize(P->Height()); }
 
    // If we are in parallel, ParTimeDepNonlinearForm::Mult uses the aux2 vector. In
    // serial, place the result directly in y (when there is no P).
    Vector &py = P ? aux2 : y;
-//std::cout<<1803000<<std::endl;
    if (ext)
-   {//std::cout<<1786000<<std::endl;
+   {
       ext->Mult(px, py);
       if (Serial())
       {
@@ -1835,7 +1808,6 @@ void TimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
       // In parallel, the result is in 'py' which is an alias for 'aux2'.
       return;
    }
-//std::cout<<1818<<std::endl;
    Array<int> vdofs;
    Vector el_x, el_dx, el_y;
    const FiniteElement *fe;
@@ -1886,10 +1858,6 @@ void TimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
          {
             if (tdnfi_marker[k] &&
                 (*tdnfi_marker[k])[attr-1] == 0) { continue; }
-               // std::cout<<1851<<std::endl;
-        // el_x.Print(std::cout,8888);
-        // el_dx.Print(std::cout,8888);
-                
             tdnfi[k]->AssembleElementVector(*fe, *T, el_x, el_dx, el_y);
             doftrans.TransformDual(el_y);
             py.AddElementVector(vdofs, el_y);
@@ -2044,45 +2012,16 @@ void TimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
       // y(ess_tdof_list[i]) = x(ess_tdof_list[i]);
    }
    // In parallel, the result is in 'py' which is an alias for 'aux2'.
-   std::cout<<std::flush;
-   MPI_Barrier(MPI_COMM_WORLD);
 }
 
 Operator &TimeDepNonlinearForm::GetGradient(const Vector &dx,
                                             bool finalize) const
 {
- //  add(x0,dt,dx,x);   // x = x0 + dt*dx
-//   const Vector &px = Prolongate(x);
-//   const Vector &pdx = Prolongate2(dx);
+   const Vector &pdx = Prolongate(dx);
 
+   add(x0,dt,pdx,x);
 
-
-
-
-
-
-   const Vector &pdx = Prolongate(dx);//std::cout<<1789000<<std::endl;
-
-//std::cout<<"pdx = "<<pdx.Size()<<std::endl;
-//std::cout<<"dx  = "<<dx.Size()<<std::endl;
-//std::cout<<"x0  = "<<x0.Size()<<std::endl;
-//std::cout<<"x   = "<<x.Size()<<std::endl;
-
-   add(x0,dt,pdx,x);   // x = x0 + dt*dx
-//std::cout<<x.Norml2()<<std::endl;
-//std::cout<<dx.Norml2()<<std::endl;
-
-  // const Vector &px = Prolongate(x);//std::cout<<1790000<<std::endl;
-   
-   
    const Vector &px = x;
-
-
-
-
-
-
-
 
    if (ext)
    {
@@ -2331,7 +2270,8 @@ TimeDepNonlinearForm::~TimeDepNonlinearForm()
 
 
 
-const BlockVector &BlockTimeDepNonlinearForm::Prolongate2(const BlockVector &bdx) const
+const BlockVector &BlockTimeDepNonlinearForm::Prolongate2(
+   const BlockVector &bdx) const
 {
    MFEM_VERIFY(bdx.Size() == Width(), "invalid input BlockVector size");
 
@@ -2364,7 +2304,6 @@ void BlockTimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
    dt = dt_;
    x0 = x0_;
    x.SetSize(x0.Size());
-  // std::cout<<"SetTimeAndSolution"<<std::endl;
    for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
    for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
    for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
@@ -2524,7 +2463,6 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
                                             const BlockVector &bdx,
                                             BlockVector &by) const
 {
-
    Array<Array<int> *>vdofs(fes.Size());
    Array<Array<int> *>vdofs2(fes.Size());
    Array<Vector *> el_x(fes.Size());
@@ -2780,15 +2718,6 @@ void BlockTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
 {
    add(x0,dt,dx,x);   // x = x0 + dt*dx
 
-   //std::cout<<x.Norml2()<<std::endl;
-   //std::cout<<dx.Norml2()<<std::endl;
-
-   //x.Print(std::cout, 9999);
-   //dx.Print(std::cout, 9999);
-
-   //  const Vector &pdx = Prolongate(dx);
-   //  const Vector &px = Prolongate(x);
-
    BlockVector bx(const_cast<Vector&>(x), block_trueOffsets);
    BlockVector bdx(const_cast<Vector&>(dx), block_trueOffsets);
    BlockVector by(y, block_trueOffsets);
@@ -2805,8 +2734,6 @@ void BlockTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
    dxs.Update(const_cast<BlockVector&>(pbdx), block_offsets);
    ys.Update(pby, block_offsets);
 
-   //std::cout<<xs.Norml2()<<std::endl;
-   //std::cout<<dxs.Norml2()<<std::endl;
    MultBlocked(xs, dxs, ys);
 
    for (int s = 0; s < fes.Size(); s++)
@@ -2827,14 +2754,6 @@ void BlockTimeDepNonlinearForm::ComputeGradientBlocked(const BlockVector &bx,
                                                        const BlockVector &bdx,
                                                        bool finalize) const
 {
-   /*
-   std::cout<<"BlockTimeDepNonlinearForm::ComputeGradientBlocked"<<std::endl;
-   std::cout<<tdnfi.Size() <<std::endl;
-   std::cout<<fnfi.Size()  <<std::endl;
-   std::cout<<tbfnfi.Size()<<std::endl;
-   std::cout<<tbnfi.Size()<<std::endl;
-   std::cout<<"------------------------------------------------"<<std::endl;
-   */
    const int skip_zeros = 0;
    Array<Array<int> *> vdofs(fes.Size());
    Array<Array<int> *> vdofs2(fes.Size());
@@ -3167,7 +3086,6 @@ Operator &BlockTimeDepNonlinearForm::GetGradient(const Vector &dx) const
 
    for (int s = 0; s < fes.Size(); ++s)
    {
-      //ess_tdofs[s]->Print(std::cout, 5555);
       for (int i = 0; i < ess_tdofs[s]->Size(); ++i)
       {
          for (int j = 0; j < fes.Size(); ++j)
@@ -3249,9 +3167,6 @@ void Evolution::Solve(const real_t dt, const Vector &u0,
    Vector zero;
    dudt = 0.0;
    solver.Mult(zero, dudt);
-  // MPI_Barrier(MPI_COMM_WORLD);
-  // std::cout<<"3253 ="<<dudt.Size()<<std::endl; 
-   MPI_Barrier(MPI_COMM_WORLD);
 }
 
 }

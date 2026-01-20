@@ -245,16 +245,17 @@ int main(int argc, char *argv[])
    // 7. Define the initial conditions, save the corresponding grid function to
    //    a file and (optionally) save data in the VisIt format and initialize
    //    GLVis visualization.
-   ParGridFunction u(&fes);
-   u.ProjectCoefficient(u0);
-
+   ParGridFunction u_gf(&fes);
+   u_gf.ProjectCoefficient(u0);
+   Vector u_vec(fes.TrueVSize());
+   u_gf.GetTrueDofs(u_vec);
    {
       ofstream omesh("ex50p.mesh");
       omesh.precision(precision);
       pmesh.Print(omesh);
       ofstream osol("ex50p-init.gf");
       osol.precision(precision);
-      u.Save(osol);
+      u_gf.Save(osol);
    }
 
    // Create data collection for solution output: either VisItDataCollection for
@@ -276,7 +277,7 @@ int main(int argc, char *argv[])
          dc->SetPrecision(precision);
       }
       dc->SetPrefixPath("Example50p");
-      dc->RegisterField("solution", &u);
+      dc->RegisterField("solution", &u_gf);
       dc->SetCycle(0);
       dc->SetTime(0.0);
       dc->Save();
@@ -287,7 +288,7 @@ int main(int argc, char *argv[])
    {
       pd = new ParaViewDataCollection("Example50", &pmesh);
       pd->SetPrefixPath("ParaView");
-      pd->RegisterField("solution", &u);
+      pd->RegisterField("solution", &u_gf);
       pd->SetLevelsOfDetail(order);
       pd->SetDataFormat(VTKFormat::BINARY);
       pd->SetHighOrderOutput(true);
@@ -312,7 +313,7 @@ int main(int argc, char *argv[])
       else
       {
          sout.precision(precision);
-         sout << "solution\n" << pmesh << u;
+         sout << "solution\n" << pmesh << u_gf;
          sout << "pause\n";
          sout << flush;
          cout << "GLVis visualization paused."
@@ -370,17 +371,19 @@ int main(int argc, char *argv[])
    for (int ti = 0; !done; )
    {
       real_t dt_real = min(dt, t_final - t);
-      ode_solver->Step(u, t, dt_real);
+
+      ode_solver->Step(u_vec, t, dt_real);
       ti++;
       done = (t >= t_final - 1e-8*dt);
 
       if (done || ti % vis_steps == 0)
       {
+         u_gf.Distribute(u_vec);
          cout << "time step: " << ti << ", time: " << t << endl;
 
          if (visualization)
          {
-            sout << "solution\n" << pmesh << u << flush;
+            sout << "solution\n" << pmesh << u_gf << flush;
          }
 
          if (visit)
@@ -404,7 +407,7 @@ int main(int argc, char *argv[])
    {
       ofstream osol("ex50-final.gf");
       osol.precision(precision);
-      u.Save(osol);
+      u_gf.Save(osol);
    }
 
    // 10. Free the used memory.
