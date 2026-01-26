@@ -21,10 +21,13 @@ RBVMSIntegrator::RBVMSIntegrator(Coefficient &rho,
    f.SetSize(dim);
    res_m.SetSize(dim);
    up.SetSize(dim);
+   traction.SetSize(dim);
    grad_u.SetSize(dim);
    hess_u.SetSize(dim, (dim*(dim+1))/2);
    grad_p.SetSize(dim);
    Gij.SetSize(dim);
+   nor.SetSize(dim);
+   hn.SetSize(dim);
    hmap.SetSize(dim,dim);
 
    if (dim == 2)
@@ -53,7 +56,7 @@ void RBVMSIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
                              real_t& rho, real_t &mu, Vector &u,
                              ElementTransformation &T)
 {
-   real_t Cd = 6.0;
+   real_t Cd = 32.0;
    real_t Ct = 1.0;
 
    // Metric tensor
@@ -62,9 +65,8 @@ void RBVMSIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
    //   Gij.Diag(tr/real_t(dim), dim);
 
    // Temporal part
-   tau_m = dt > 0.0 ? Ct/(dt*dt) : 1e-10;
+   tau_m = Ct/(dt*dt);
 
-   //   std::cout<<tau_m<<std::endl;
    // Convective part
    tau_c = 0.0;
    for (int j = 0; j < dim; j++)
@@ -75,7 +77,6 @@ void RBVMSIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
          tau_c += Gij(i,j)*u[i]*uj;
       }
    }
-
    cfl2 = tau_c/tau_m;
    tau_m += tau_c;
    tau_m *= rho*rho;
@@ -96,12 +97,8 @@ void RBVMSIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
    // Continuity stabilisation parameter
    tau_c = 1.0/(tau_m*Gij.Trace());
 
-   //  std::cout<<tau_m<<std::endl;
-   //  std::cout<<Gij.Trace()<<std::endl;
-   //  std::cout<<tau_c<<std::endl;
-   //MFEM_VERIFY(false, "");
-   cfl = std::max(cfl, sqrt(cfl2) );
-   if (cfl >22.5 ) { std::cout<<"cfl = "<<cfl<<std::endl; }
+   // tau_m =0.0;
+   // tau_c = 0.0;
 }
 
 // Compute element average artifical diffusion
@@ -184,6 +181,8 @@ real_t RBVMSIntegrator::GetElemArtDiff(const Array<const FiniteElement *>
    }
    return 0.0*num/fmax(den,1e-6);
 }
+
+
 
 // Get energy
 real_t RBVMSIntegrator::GetElementEnergy(
@@ -269,28 +268,16 @@ void RBVMSIntegrator::AssembleElementVector(
 
    int intorder = 2*el[0]->GetOrder();
    const IntegrationRule &ir = IntRules.Get(el[0]->GetGeomType(), intorder);
-   real_t tau_m, tau_c;
-   elem_cfl = 0.0;
-
-   double mu_ad = 0.0;// GetElemArtDiff(el, Tr, elsol, elrate);
 
    for (int i = 0; i < ir.GetNPoints(); ++i)
    {
       const IntegrationPoint &ip = ir.IntPoint(i);
       Tr.SetIntPoint(&ip);
       real_t w = ip.weight * Tr.Weight();
-      real_t rho = c_rho.Eval(Tr, ip);
-      real_t mu = c_mu.Eval(Tr, ip);
-      real_t mu_eff = mu + mu_ad;
-      c_force.Eval(f, Tr, ip);
 
       // Compute shape and interpolate
-      el[0]->CalcPhysShape(Tr, sh_u);
-      elf_u.MultTranspose(sh_u, u);
-      elf_du.MultTranspose(sh_u, dudt);
-
       el[0]->CalcPhysDShape(Tr, shg_u);
-      shg_u.Mult(u, ushg_u);
+      MultAtB(elf_u, shg_u, grad_u);
 
       el[1]->CalcPhysShape(Tr, sh_p);
       real_t p = sh_p*(*elsol[1]);
@@ -298,62 +285,14 @@ void RBVMSIntegrator::AssembleElementVector(
       el[1]->CalcPhysDShape(Tr, shg_p);
       shg_p.MultTranspose(*elsol[1], grad_p);
 
-      // Compute strong residual
-      MultAtB(elf_u, shg_u, grad_u);
-      grad_u.Mult(u,res_m);   // Add convection
-      res_m += dudt;          // Add acceleration
-      res_m *= rho;
-      res_m += grad_p;        // Add pressure
-      res_m -= f;             // Subtract force
+      // Vector diffusion
+      AddMult_a_ABt(w, shg_u, grad_u, elv_u);
 
-      if (hess)               // Add diffusion
-      {
-         el[0]->CalcPhysHessian(Tr,shh_u);
-         MultAtB(elf_u, shh_u, hess_u);
-         for (int i = 0; i < dim; ++i)
-         {
-            for (int j = 0; j < dim; ++j)
-            {
-               res_m[j] -= mu*(hess_u(j,hmap(i,i)) +
-                               hess_u(i,hmap(j,i)));
-            }
-         }
-      }
-      else                   // No diffusion in strong residual
-      {
-         shh_u = 0.0;
-         hess_u = 0.0;
-      }
-      real_t res_c = grad_u.Trace();
-
-      // Compute stability params
-      GetTau(tau_m, tau_c, elem_cfl, rho, mu, u, Tr);
-
-      // Small scale reconstruction
-      up.Set(-tau_m,res_m);
-      u += up;
-      p -= tau_c*res_c;
-
-      // Compute momentum weak residual
-      flux.Diag(-p, dim);                         // Add pressure
-      grad_u.Symmetrize();                        // Grad to strain
-      flux.Add(2*mu_eff,grad_u);                  // Add stress to flux
-      AddMult_a_VVt(-rho, u, flux);               // Add convection to flux
-      AddMult_a_ABt(w, shg_u, flux, elv_u);       // Add flux term to rhs
-      f.Add(-rho, dudt);                          // Add Acceleration to force
-      AddMult_a_VWt(-w, sh_u, f, elv_u);          // Add force + acc term to rhs
-
-      // Compute continuity weak residual
-      elvec[1]->Add(-w*res_c, sh_p);              // Add Galerkin term
-      shg_p.Mult(up, sh_p);                       // PSPG help term
-      elvec[1]->Add(w, sh_p);                     // Add PSPG term
+      // Scalar diffusion
+      shg_p.AddMult(grad_p, *elvec[1], w);
    }
-   //  *elvec[1] *= 1.0/dt;
-   //   elem_cfl = sqrt(elem_cfl);
-   //std::cout<<dt<<std::endl;
-   // elvec[0]->Print();
-   //elvec[1]->Print();
-   //MFEM_VERIFY(false,"");
+   ///elvec[0]->Print(std::cout, 7777);
+   ///elvec[1]->Print(std::cout, 7777);
 }
 
 // Assemble the element interior gradient matrices
@@ -366,7 +305,7 @@ void RBVMSIntegrator::AssembleElementGrad(
 {
    int dof_u = el[0]->GetDof();
    int dof_p = el[1]->GetDof();
-
+   //std::cout<<dt<<std::endl;
    bool hess = false;// = (el[0]->GetDerivType() == (int) FiniteElement::HESS);
 
    elf_u.UseExternalData(elsol[0]->GetData(), dof_u, dim);
@@ -389,31 +328,9 @@ void RBVMSIntegrator::AssembleElementGrad(
 
    DenseMatrix mat_wu1(dof_u, dof_u);
    mat_wu1 = 0.0;
-   DenseMatrix mat_wp1[dim], mat_qu1[dim], mat_up[dim];
-   for (int i_dim = 0; i_dim < dim; ++i_dim)
-   {
-      mat_wp1[i_dim].SetSize(dof_u,dof_p);
-      mat_qu1[i_dim].SetSize(dof_p,dof_u);
-      mat_up[i_dim].SetSize(dof_u,dof_p);
-      mat_wp1[i_dim] = 0.0;
-      mat_qu1[i_dim] = 0.0;
-      mat_up[i_dim] = 0.0;
-   }
-
-   int dim2 = (dim*(dim+1))/2;
-   DenseMatrix  mat_uu[dim*dim];
-   for (int i_dim = 0; i_dim < dim2; ++i_dim)
-   {
-      mat_uu[i_dim].SetSize(dof_u,dof_u);
-      mat_uu[i_dim] = 0.0;
-   }
-
-   Vector vec_u1(NULL,dof_u), vec_u2(NULL,dof_u), vec_p(NULL,dof_p);
 
    sh_u.SetSize(dof_u);
    shg_u.SetSize(dof_u, dim);
-   ushg_u.SetSize(dof_u);
-   dupdu.SetSize(dof_u);
    sh_p.SetSize(dof_p);
    shg_p.SetSize(dof_p, dim);
 
@@ -421,9 +338,6 @@ void RBVMSIntegrator::AssembleElementGrad(
 
    int intorder = 2*el[0]->GetOrder();
    const IntegrationRule &ir = IntRules.Get(el[0]->GetGeomType(), intorder);
-   real_t tau_m, tau_c, cfl2;
-
-   //double mu_ad = 0.0;//GetElemArtDiff(el, Tr, elsol, elrate);
 
    for (int i = 0; i < ir.GetNPoints(); ++i)
    {
@@ -431,138 +345,25 @@ void RBVMSIntegrator::AssembleElementGrad(
       Tr.SetIntPoint(&ip);
       real_t w = ip.weight * Tr.Weight();
 
-      real_t rho = c_rho.Eval(Tr, ip);
-      real_t mu = c_mu.Eval(Tr, ip);
-      //real_t mu_eff = mu + mu_ad;
-
-      el[0]->CalcPhysShape(Tr, sh_u);
-      elf_u.MultTranspose(sh_u, u);
-      elf_du.MultTranspose(sh_u, dudt);
-
       el[0]->CalcPhysDShape(Tr, shg_u);
       MultAtB(elf_u, shg_u, grad_u);
-
-      shg_u.Mult(u, ushg_u);
-
-      el[1]->CalcPhysShape(Tr, sh_p);
-      real_t p = sh_p*(*elsol[1]);
 
       el[1]->CalcPhysDShape(Tr, shg_p);
       shg_p.MultTranspose(*elsol[1], grad_p);
 
-      // Compute strong residual
-      MultAtB(elf_u, shg_u, grad_u);
-      grad_u.Mult(u,res_m);   // Add convection
-      res_m += dudt;          // Add acceleration
-      res_m *= rho;
-      res_m += grad_p;        // Add pressure
-      res_m -= f;             // Subtract force
+      // Single component of vector diffusion
+      AddMult_a_AAt(w*dt, shg_u, mat_wu1);
 
-      if (hess)               // Add diffusion
-      {
-         el[0]->CalcPhysHessian(Tr,shh_u);
-         MultAtB(elf_u, shh_u, hess_u);
-         for (int i = 0; i < dim; ++i)
-         {
-            for (int j = 0; j < dim; ++j)
-            {
-               res_m[j] -= mu*(hess_u(j,hmap(i,i)) +
-                               hess_u(i,hmap(j,i)));
-            }
-         }
-      }
-      else                   // No diffusion in strong residual
-      {
-         shh_u = 0.0;
-         hess_u = 0.0;
-      }
-
-      // Compute stability params
-      GetTau(tau_m, tau_c, cfl2, rho, mu, u, Tr);
-
-      // Small scale reconstruction
-      up.Set(-tau_m,res_m);
-      u += up;
-
-      // Compute small scale jacobian
-      for (int j_u = 0; j_u < dof_u; ++j_u)
-      {
-         dupdu(j_u) = -tau_m*rho*(sh_u(j_u) + ushg_u(j_u)*dt);
-      }
-      shg_u.Mult(u, ushg_u);
-
-      // Recompute convective gradient
-      MultAtB(elf_u, shg_u, grad_u);
-
-      shg_uT.Transpose(shg_u);
-
-      // Momentum - Block diagonal Velocity block (w,u)
-      // Acceleration term
-      AddMult_a_VVt(rho*w, sh_u, mat_wu1);
-
-      // Convection terms
-      AddMult_a_VWt(-dt*rho*w, ushg_u, sh_u, mat_wu1);
-      AddMult_a_VWt(-rho*w, ushg_u, dupdu, mat_wu1);
-
-      // Diffusion term
-      AddMult_a_AAt(w*mu*dt, shg_u, mat_wu1);
-
-      // Continuity - Pressure block (q,p)
-      AddMult_a_AAt(-w*tau_m, shg_p, mat_qp);
-
-      // Off diagional block terms
-      int ii = 0;
-      for (int i_dim = 0; i_dim < dim; ++i_dim)
-      {
-         // Getting columns for outer product
-         shg_p.GetColumnReference(i_dim, vec_p);
-         shg_u.GetColumnReference(i_dim, vec_u1);
-
-         // Momentum + Continuity Galerkin terms
-         AddMult_a_VWt(-w, vec_u1, sh_p, mat_up[i_dim]);
-
-         // Momentum - Pressure block (w,p)
-         AddMult_a_VWt(tau_m * w, ushg_u, vec_p, mat_wp1[i_dim] );
-
-         // Continuity - Velocity block (q,u)
-         AddMult_a_VWt(w, vec_p, dupdu, mat_qu1[i_dim]);
-
-         // Momentum - Velocity block (w,u)
-         for (int j_dim = 0; j_dim < i_dim; ++j_dim)
-         {
-            shg_u.GetColumnReference(j_dim, vec_u2);
-            AddMult_a_VWt(w*dt*(mu+tau_c), vec_u1, vec_u2, mat_uu[ii++]);
-         }
-         AddMult_a_VVt(w*dt*(mu+tau_c), vec_u1, mat_uu[ii++]);
-      }
+      // Scalar diffusion
+      AddMult_a_AAt(w*dt, shg_p, mat_qp);
    }
 
    // Adding sub elements
    int ii = 0;
    for (int i_dim = 0; i_dim < dim; ++i_dim)
    {
-      mat_wp1[i_dim] += mat_up[i_dim];
-      mat_up[i_dim].Transpose();
-      mat_up[i_dim] *= dt;
-      mat_qu1[i_dim] += mat_up[i_dim];
-
-      mat_wp.AddSubMatrix(i_dim * dof_u, 0, mat_wp1[i_dim]);
-      mat_qu.AddSubMatrix(0, i_dim * dof_u, mat_qu1[i_dim]);
       mat_wu.AddSubMatrix(i_dim*dof_u, mat_wu1);
-      for (int j_dim = 0; j_dim < i_dim; ++j_dim)
-      {
-         mat_wu.AddSubMatrix(i_dim * dof_u, j_dim * dof_u, mat_uu[ii]);
-         mat_uu[ii].Transpose();
-         mat_wu.AddSubMatrix(j_dim * dof_u, i_dim * dof_u, mat_uu[ii++]);
-      }
-      mat_wu.AddSubMatrix(i_dim * dof_u, i_dim * dof_u, mat_uu[ii++]);
    }
-
-   mat_wp *= dt;
-   mat_qp *= dt;//??
-
-   //mat_qu *= 1.0/dt;
-   //mat_qp *= 1.0/dt;
 }
 
 
@@ -572,8 +373,14 @@ void OutflowIntegrator::SetDim (int dim_)
    if (dim == dim_) { return; }
    dim =  dim_;
    u.SetSize(dim);
+   dudt.SetSize(dim);
+   f.SetSize(dim);
+   res_m.SetSize(dim);
+   up.SetSize(dim);
    traction.SetSize(dim);
    grad_u.SetSize(dim);
+   hess_u.SetSize(dim, (dim*(dim+1))/2);
+   grad_p.SetSize(dim);
    Gij.SetSize(dim);
    nor.SetSize(dim);
    hn.SetSize(dim);
@@ -628,7 +435,7 @@ void OutflowIntegrator
       real_t rho = c_rho.Eval(*Tr.Elem1, eip);
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      // elf_du.MultTranspose(sh_u, dudt);
+      elf_du.MultTranspose(sh_u, dudt);
 
       real_t un = u*nor;
       /* if (suction)
@@ -654,6 +461,7 @@ void OutflowIntegrator
                    const Array<const Vector *> &elrate,
                    const Array2D<DenseMatrix *> &elmats)
 {
+   //std::cout<<"IncNavStoIntegrator::AssembleFaceGrad"<<std::endl;
    real_t outflow = 0.0;
    bool suction = false;
 
@@ -697,7 +505,7 @@ void OutflowIntegrator
       real_t rho = c_rho.Eval(*Tr.Elem1, eip);
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      //elf_du.MultTranspose(sh_u, dudt);
+      elf_du.MultTranspose(sh_u, dudt);
       real_t un = u*nor;
 
       if (un < 0.0) { continue; }
@@ -733,7 +541,7 @@ void OutflowIntegrator
          }
       }
    }
-   // mat_wp *= dt;
+   //mat_wp *= dt;
    // mat_qp *= dt;
 }
 
@@ -744,16 +552,14 @@ void WeakBCIntegrator::SetDim(int dim_)
    if (dim == dim_) { return; }
    dim = dim_;
    u.SetSize(dim);
-   ug.SetSize(dim);
-   ud.SetSize(dim);
-   // dudt.SetSize(dim);
-   //   f.SetSize(dim);
-   //  res_m.SetSize(dim);
-   // up.SetSize(dim);
+   dudt.SetSize(dim);
+   f.SetSize(dim);
+   res_m.SetSize(dim);
+   up.SetSize(dim);
    traction.SetSize(dim);
    grad_u.SetSize(dim);
    hess_u.SetSize(dim, (dim*(dim+1))/2);
-   //   grad_p.SetSize(dim);
+   grad_p.SetSize(dim);
    Gij.SetSize(dim);
    nor.SetSize(dim);
    hn.SetSize(dim);
@@ -800,7 +606,6 @@ void WeakBCIntegrator
 
    sh_u.SetSize(dof_u);
    shg_u.SetSize(dof_u, dim);
-   sh_p.SetSize(dof_p);
    int intorder = 2*el1[0]->GetOrder();
    const IntegrationRule &ir = IntRules.Get(Tr.GetGeometryType(), intorder);
    real_t tau_b, tau_n;
@@ -816,7 +621,7 @@ void WeakBCIntegrator
 
       real_t rho = c_rho.Eval(*Tr.Elem1, eip);
       real_t mu = c_mu.Eval(*Tr.Elem1, eip);
-      c_sol.Eval(ug, *Tr.Elem1, eip);
+      c_sol.Eval(up, *Tr.Elem1, eip);
 
       real_t w = ip.weight * Tr.Weight();
       CalcOrtho(Tr.Jacobian(), nor);
@@ -830,14 +635,11 @@ void WeakBCIntegrator
 
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      // elf_du.MultTranspose(sh_u, dudt);
+      elf_du.MultTranspose(sh_u, dudt);
 
-      //ug -= u;
-      //ug.Neg();
-      //real_t un = ug*nor;
-      add(u, -1.0, ug, ud);
-      real_t un = ud*nor;//= (u-ug)*nor;
-
+      up -= u;
+      up.Neg();
+      real_t un = up*nor;
 
       el1[0]->CalcPhysDShape(*Tr.Elem1, shg_u);
       MultAtB(elf_u, shg_u, grad_u);
@@ -852,12 +654,12 @@ void WeakBCIntegrator
       grad_u.Mult(nor, traction);
       traction *= -2*mu;             // Consistency
       traction.Add(p, nor);          // Pressure
-      traction.Add(tau_b,ud);        // Penalty
+      traction.Add(tau_b,up);        // Penalty
       traction.Add(tau_n*un,nor);    // Penalty -- normal
       AddMult_a_VWt(w, sh_u, traction, elv_u);
 
       // Dual consistency
-      MultVWt(nor, ud, flux);
+      MultVWt(nor,up, flux);
       flux.Symmetrize();
       AddMult_a_ABt(-w*2*mu, shg_u, flux, elv_u);
 
@@ -868,9 +670,9 @@ void WeakBCIntegrator
       un = u*nor;
       if (un < 0.0) { continue; }
 
-      AddMult_a_VWt(rho*w*un, sh_u, ud, elv_u);
+      AddMult_a_VWt(rho*w*un, sh_u, up, elv_u);
    }
-   // *elvec[1] *= 1.0/dt;
+   *elvec[1] *= 1.0/dt;
 }
 
 // Assemble the weak Dirichlet BC boundary gradient matrices
@@ -935,7 +737,7 @@ void WeakBCIntegrator
 
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      //  elf_du.MultTranspose(sh_u, dudt);
+      elf_du.MultTranspose(sh_u, dudt);
 
       el1[0]->CalcPhysDShape(*Tr.Elem1, shg_u);
       el1[1]->CalcPhysShape(*Tr.Elem1, sh_p);
@@ -1064,8 +866,8 @@ void WeakBCIntegrator
    mat_wp *= dt;
    mat_qp *= dt;
 
-   // mat_qu *= 1.0/dt;
-   // mat_qp *= 1.0/dt;
+   mat_qu *= 1.0/dt;
+   mat_qp *= 1.0/dt;
 }
 
 
@@ -1077,14 +879,7 @@ void NewtonSystemSolver::Norms(const Vector &r, Vector& lnorm) const
    for (int i = 0; i < nvar; ++i)
    {
       Vector r_i(r.GetData() + bOffsets[i], bOffsets[i+1] - bOffsets[i]);
-      if (parallel)
-      {
-         lnorm[i] = sqrt(InnerProduct(MPI_COMM_WORLD, r_i, r_i));
-      }
-      else
-      {
-         lnorm[i] = sqrt(r_i*r_i);
-      }
+      lnorm[i] = r_i*r_i;//sqrt(InnerProduct(MPI_COMM_WORLD, r_i, r_i));
       MFEM_VERIFY(IsFinite(lnorm[i]), "norm[" << i << "] = " << lnorm[i]);
    }
 }
@@ -1195,7 +990,6 @@ void NewtonSystemSolver::Mult(const Vector &b, Vector &x) const
       {
          r -= b;
       }
-
       Norms(r, norm);
    }
 

@@ -348,7 +348,7 @@ int main(int argc, char *argv[])
    newton_solver.SetPrintLevel(1);
    newton_solver.SetRelTol(Newton_RelTol);
    newton_solver.SetAbsTol(1e-12);
-   newton_solver.SetMaxIter(Newton_MaxIter );
+   newton_solver.SetMaxIter(Newton_MaxIter);
    newton_solver.SetSolver(gmres);
 
    Evolution adv(form, newton_solver);

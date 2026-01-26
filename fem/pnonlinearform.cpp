@@ -791,25 +791,14 @@ ParTimeDepNonlinearForm::ParTimeDepNonlinearForm(ParFiniteElementSpace *pf)
    MFEM_VERIFY(!Serial(), "internal MFEM error");
 }
 
-void ParTimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
-                                                 const real_t &dt_,
-                                                 const Vector &x0_)
+void ParTimeDepNonlinearForm::SetInitialSolution(const Vector &x0_)
 {
-   t = t_;
-   dt = dt_;
-   for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i < tbfnfi.Size(); i++) { tbfnfi[i]->SetTimeStep(dt); }
-
    ParFiniteElementSpace *pfes = ParFESpace();
    x.SetSize(pfes->GetVSize());
    x0.SetSize(pfes->GetVSize());
 
    pfes->GetProlongationMatrix()->Mult(x0_, x0);
-
 }
-
 
 real_t ParTimeDepNonlinearForm::GetParGridFunctionEnergy(const Vector &x) const
 {
@@ -1076,17 +1065,8 @@ void ParBlockTimeDepNonlinearForm::SetParSpaces(Array<ParFiniteElementSpace *>
    }
 }
 
-void ParBlockTimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
-                                                      const real_t &dt_,
-                                                      const Vector &x0_)
+void ParBlockTimeDepNonlinearForm::SetInitialSolution(const Vector &x0_)
 {
-   t = t_;
-   dt = dt_;
-   for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i < tbfnfi.Size(); i++) { tbfnfi[i]->SetTimeStep(dt); }
-
    xs_true.Update(const_cast<Vector &>(x0_), block_trueOffsets);
    xs0.Update(block_offsets);
 
@@ -1096,7 +1076,6 @@ void ParBlockTimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
          xs_true.GetBlock(s), xs0.GetBlock(s));
    }
 }
-
 
 ParFiniteElementSpace * ParBlockTimeDepNonlinearForm::ParFESpace(int k)
 {

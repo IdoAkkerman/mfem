@@ -211,9 +211,7 @@ public:
 
 
    ///
-   void SetTimeAndSolution(const real_t &t_,
-                           const real_t &dt_,
-                           const Vector &x0_) override;
+   void SetInitialSolution(const Vector &x0_) override;
 
    /// Compute the energy corresponding to the state @a x.
    /** In general, @a x may have non-homogeneous essential boundary values.
@@ -276,9 +274,7 @@ public:
    ParBlockTimeDepNonlinearForm(Array<ParFiniteElementSpace *> &pf);
 
    ///
-   void SetTimeAndSolution(const real_t &t_,
-                           const real_t &dt_,
-                           const Vector &x0_) override;
+   void SetInitialSolution(const Vector &x0_) override;
 
    /// Return the @a k-th parallel FE space of the ParBlockNonlinearForm.
    ParFiniteElementSpace *ParFESpace(int k);

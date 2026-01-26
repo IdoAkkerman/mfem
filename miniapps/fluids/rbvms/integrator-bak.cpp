@@ -21,10 +21,13 @@ RBVMSIntegrator::RBVMSIntegrator(Coefficient &rho,
    f.SetSize(dim);
    res_m.SetSize(dim);
    up.SetSize(dim);
+   traction.SetSize(dim);
    grad_u.SetSize(dim);
    hess_u.SetSize(dim, (dim*(dim+1))/2);
    grad_p.SetSize(dim);
    Gij.SetSize(dim);
+   nor.SetSize(dim);
+   hn.SetSize(dim);
    hmap.SetSize(dim,dim);
 
    if (dim == 2)
@@ -53,7 +56,7 @@ void RBVMSIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
                              real_t& rho, real_t &mu, Vector &u,
                              ElementTransformation &T)
 {
-   real_t Cd = 6.0;
+   real_t Cd = 32.0;
    real_t Ct = 1.0;
 
    // Metric tensor
@@ -62,9 +65,8 @@ void RBVMSIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
    //   Gij.Diag(tr/real_t(dim), dim);
 
    // Temporal part
-   tau_m = dt > 0.0 ? Ct/(dt*dt) : 1e-10;
+   tau_m = Ct/(dt*dt);
 
-   //   std::cout<<tau_m<<std::endl;
    // Convective part
    tau_c = 0.0;
    for (int j = 0; j < dim; j++)
@@ -75,7 +77,6 @@ void RBVMSIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
          tau_c += Gij(i,j)*u[i]*uj;
       }
    }
-
    cfl2 = tau_c/tau_m;
    tau_m += tau_c;
    tau_m *= rho*rho;
@@ -96,12 +97,8 @@ void RBVMSIntegrator::GetTau(real_t &tau_m, real_t &tau_c, real_t &cfl2,
    // Continuity stabilisation parameter
    tau_c = 1.0/(tau_m*Gij.Trace());
 
-   //  std::cout<<tau_m<<std::endl;
-   //  std::cout<<Gij.Trace()<<std::endl;
-   //  std::cout<<tau_c<<std::endl;
-   //MFEM_VERIFY(false, "");
-   cfl = std::max(cfl, sqrt(cfl2) );
-   if (cfl >22.5 ) { std::cout<<"cfl = "<<cfl<<std::endl; }
+   // tau_m =0.0;
+   // tau_c = 0.0;
 }
 
 // Compute element average artifical diffusion
@@ -184,6 +181,8 @@ real_t RBVMSIntegrator::GetElemArtDiff(const Array<const FiniteElement *>
    }
    return 0.0*num/fmax(den,1e-6);
 }
+
+
 
 // Get energy
 real_t RBVMSIntegrator::GetElementEnergy(
@@ -269,7 +268,7 @@ void RBVMSIntegrator::AssembleElementVector(
 
    int intorder = 2*el[0]->GetOrder();
    const IntegrationRule &ir = IntRules.Get(el[0]->GetGeomType(), intorder);
-   real_t tau_m, tau_c;
+   real_t tau_m, tau_c, cfl2;
    elem_cfl = 0.0;
 
    double mu_ad = 0.0;// GetElemArtDiff(el, Tr, elsol, elrate);
@@ -327,7 +326,8 @@ void RBVMSIntegrator::AssembleElementVector(
       real_t res_c = grad_u.Trace();
 
       // Compute stability params
-      GetTau(tau_m, tau_c, elem_cfl, rho, mu, u, Tr);
+      GetTau(tau_m, tau_c, cfl2, rho, mu, u, Tr);
+      elem_cfl = fmax(elem_cfl, cfl2);
 
       // Small scale reconstruction
       up.Set(-tau_m,res_m);
@@ -348,12 +348,8 @@ void RBVMSIntegrator::AssembleElementVector(
       shg_p.Mult(up, sh_p);                       // PSPG help term
       elvec[1]->Add(w, sh_p);                     // Add PSPG term
    }
-   //  *elvec[1] *= 1.0/dt;
-   //   elem_cfl = sqrt(elem_cfl);
-   //std::cout<<dt<<std::endl;
-   // elvec[0]->Print();
-   //elvec[1]->Print();
-   //MFEM_VERIFY(false,"");
+   *elvec[1] *= 1.0/dt;
+   elem_cfl = sqrt(elem_cfl);
 }
 
 // Assemble the element interior gradient matrices
@@ -558,11 +554,28 @@ void RBVMSIntegrator::AssembleElementGrad(
       mat_wu.AddSubMatrix(i_dim * dof_u, i_dim * dof_u, mat_uu[ii++]);
    }
 
-   mat_wp *= dt;
-   mat_qp *= dt;//??
+   /*std::cout<<"-------------------------\n";
+      std::cout<<mat_wu.FNorm()<<std::endl;
+      std::cout<<mat_wp.FNorm()<<std::endl;
+      std::cout<<mat_qu.FNorm()<<std::endl;
+      std::cout<<mat_qp.FNorm()<<std::endl;
+   std::cout<<"-------------------------\n";*/
+   // mat_wu *= 1.0/dt;
+   // mat_qu *= 1.0/dt;
 
-   //mat_qu *= 1.0/dt;
-   //mat_qp *= 1.0/dt;
+   // mat_wu *= 1.0/dt;
+   //  mat_qu *= 1.0/dt;
+
+
+   // mat_wp *= 1.0/dt;
+   // mat_qp *= 1.0/dt;
+
+
+   mat_wp *= dt;
+   mat_qp *= dt;
+
+   mat_qu *= 1.0/dt;
+   mat_qp *= 1.0/dt;
 }
 
 
@@ -572,8 +585,14 @@ void OutflowIntegrator::SetDim (int dim_)
    if (dim == dim_) { return; }
    dim =  dim_;
    u.SetSize(dim);
+   dudt.SetSize(dim);
+   f.SetSize(dim);
+   res_m.SetSize(dim);
+   up.SetSize(dim);
    traction.SetSize(dim);
    grad_u.SetSize(dim);
+   hess_u.SetSize(dim, (dim*(dim+1))/2);
+   grad_p.SetSize(dim);
    Gij.SetSize(dim);
    nor.SetSize(dim);
    hn.SetSize(dim);
@@ -628,7 +647,7 @@ void OutflowIntegrator
       real_t rho = c_rho.Eval(*Tr.Elem1, eip);
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      // elf_du.MultTranspose(sh_u, dudt);
+      elf_du.MultTranspose(sh_u, dudt);
 
       real_t un = u*nor;
       /* if (suction)
@@ -654,6 +673,7 @@ void OutflowIntegrator
                    const Array<const Vector *> &elrate,
                    const Array2D<DenseMatrix *> &elmats)
 {
+   //std::cout<<"IncNavStoIntegrator::AssembleFaceGrad"<<std::endl;
    real_t outflow = 0.0;
    bool suction = false;
 
@@ -697,7 +717,7 @@ void OutflowIntegrator
       real_t rho = c_rho.Eval(*Tr.Elem1, eip);
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      //elf_du.MultTranspose(sh_u, dudt);
+      elf_du.MultTranspose(sh_u, dudt);
       real_t un = u*nor;
 
       if (un < 0.0) { continue; }
@@ -733,7 +753,7 @@ void OutflowIntegrator
          }
       }
    }
-   // mat_wp *= dt;
+   //mat_wp *= dt;
    // mat_qp *= dt;
 }
 
@@ -744,16 +764,14 @@ void WeakBCIntegrator::SetDim(int dim_)
    if (dim == dim_) { return; }
    dim = dim_;
    u.SetSize(dim);
-   ug.SetSize(dim);
-   ud.SetSize(dim);
-   // dudt.SetSize(dim);
-   //   f.SetSize(dim);
-   //  res_m.SetSize(dim);
-   // up.SetSize(dim);
+   dudt.SetSize(dim);
+   f.SetSize(dim);
+   res_m.SetSize(dim);
+   up.SetSize(dim);
    traction.SetSize(dim);
    grad_u.SetSize(dim);
    hess_u.SetSize(dim, (dim*(dim+1))/2);
-   //   grad_p.SetSize(dim);
+   grad_p.SetSize(dim);
    Gij.SetSize(dim);
    nor.SetSize(dim);
    hn.SetSize(dim);
@@ -800,7 +818,6 @@ void WeakBCIntegrator
 
    sh_u.SetSize(dof_u);
    shg_u.SetSize(dof_u, dim);
-   sh_p.SetSize(dof_p);
    int intorder = 2*el1[0]->GetOrder();
    const IntegrationRule &ir = IntRules.Get(Tr.GetGeometryType(), intorder);
    real_t tau_b, tau_n;
@@ -816,7 +833,7 @@ void WeakBCIntegrator
 
       real_t rho = c_rho.Eval(*Tr.Elem1, eip);
       real_t mu = c_mu.Eval(*Tr.Elem1, eip);
-      c_sol.Eval(ug, *Tr.Elem1, eip);
+      c_sol.Eval(up, *Tr.Elem1, eip);
 
       real_t w = ip.weight * Tr.Weight();
       CalcOrtho(Tr.Jacobian(), nor);
@@ -830,14 +847,11 @@ void WeakBCIntegrator
 
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      // elf_du.MultTranspose(sh_u, dudt);
+      elf_du.MultTranspose(sh_u, dudt);
 
-      //ug -= u;
-      //ug.Neg();
-      //real_t un = ug*nor;
-      add(u, -1.0, ug, ud);
-      real_t un = ud*nor;//= (u-ug)*nor;
-
+      up -= u;
+      up.Neg();
+      real_t un = up*nor;
 
       el1[0]->CalcPhysDShape(*Tr.Elem1, shg_u);
       MultAtB(elf_u, shg_u, grad_u);
@@ -852,12 +866,12 @@ void WeakBCIntegrator
       grad_u.Mult(nor, traction);
       traction *= -2*mu;             // Consistency
       traction.Add(p, nor);          // Pressure
-      traction.Add(tau_b,ud);        // Penalty
+      traction.Add(tau_b,up);        // Penalty
       traction.Add(tau_n*un,nor);    // Penalty -- normal
       AddMult_a_VWt(w, sh_u, traction, elv_u);
 
       // Dual consistency
-      MultVWt(nor, ud, flux);
+      MultVWt(nor,up, flux);
       flux.Symmetrize();
       AddMult_a_ABt(-w*2*mu, shg_u, flux, elv_u);
 
@@ -868,9 +882,9 @@ void WeakBCIntegrator
       un = u*nor;
       if (un < 0.0) { continue; }
 
-      AddMult_a_VWt(rho*w*un, sh_u, ud, elv_u);
+      AddMult_a_VWt(rho*w*un, sh_u, up, elv_u);
    }
-   // *elvec[1] *= 1.0/dt;
+   *elvec[1] *= 1.0/dt;
 }
 
 // Assemble the weak Dirichlet BC boundary gradient matrices
@@ -935,7 +949,7 @@ void WeakBCIntegrator
 
       el1[0]->CalcPhysShape(*Tr.Elem1, sh_u);
       elf_u.MultTranspose(sh_u, u);
-      //  elf_du.MultTranspose(sh_u, dudt);
+      elf_du.MultTranspose(sh_u, dudt);
 
       el1[0]->CalcPhysDShape(*Tr.Elem1, shg_u);
       el1[1]->CalcPhysShape(*Tr.Elem1, sh_p);
@@ -1064,8 +1078,8 @@ void WeakBCIntegrator
    mat_wp *= dt;
    mat_qp *= dt;
 
-   // mat_qu *= 1.0/dt;
-   // mat_qp *= 1.0/dt;
+   mat_qu *= 1.0/dt;
+   mat_qp *= 1.0/dt;
 }
 
 
@@ -1077,14 +1091,7 @@ void NewtonSystemSolver::Norms(const Vector &r, Vector& lnorm) const
    for (int i = 0; i < nvar; ++i)
    {
       Vector r_i(r.GetData() + bOffsets[i], bOffsets[i+1] - bOffsets[i]);
-      if (parallel)
-      {
-         lnorm[i] = sqrt(InnerProduct(MPI_COMM_WORLD, r_i, r_i));
-      }
-      else
-      {
-         lnorm[i] = sqrt(r_i*r_i);
-      }
+      lnorm[i] = r_i*r_i;//sqrt(InnerProduct(MPI_COMM_WORLD, r_i, r_i));
       MFEM_VERIFY(IsFinite(lnorm[i]), "norm[" << i << "] = " << lnorm[i]);
    }
 }
@@ -1195,7 +1202,6 @@ void NewtonSystemSolver::Mult(const Vector &b, Vector &x) const
       {
          r -= b;
       }
-
       Norms(r, norm);
    }
 

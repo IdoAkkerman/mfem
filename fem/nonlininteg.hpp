@@ -210,6 +210,9 @@ public:
    /// Set the timestep to use during integration
    void SetTimeStep(const real_t &dt_) { dt = dt_; }
 
+   /// Set the time
+   virtual void SetTime(const real_t &t_) { }
+
    /// Set the timestep to use during integration
    real_t GetTimeStep() const { return dt; } ;
 
@@ -301,6 +304,9 @@ public:
 
    /// Set the timestep to use during integration
    void SetTimeStep(const real_t &dt_) { dt = dt_; }
+
+   /// Set the time
+   virtual void SetTime(const real_t &t_) { }
 
    /// Set the timestep to use during integration
    real_t GetTimeStep() const { return dt; };

@@ -26,14 +26,16 @@ private:
    VectorCoefficient &c_force;
 
    /// Numerical parameters
+   real_t dt = -1.0;
    DenseMatrix Gij;
+   Vector hn;
 
    /// Dimension data
    int dim = -1;
    Array2D<int> hmap;
 
    /// Physical values
-   Vector u, dudt, f, grad_p, res_m, up;
+   Vector u, dudt, f, grad_p, res_m, up, nor, traction;
    DenseMatrix flux;
 
    /// Solution & Residual vector
@@ -48,21 +50,19 @@ private:
                real_t &rho, real_t &mu, Vector &u,
                ElementTransformation &Tr);
 
-   real_t cfl = 0;
-
 public:
    /// Constructor
    RBVMSIntegrator(Coefficient &rho_,
                    Coefficient &mu_,
                    VectorCoefficient &force_);
 
-   /// Set the time @a t
-   void SetTime(const real_t &t) override
+   /// Set the timestep size @a dt_
+   void SetTimeAndStep(const real_t &t, const real_t &dt_)
    {
+      dt = dt_;
       c_rho.SetTime(t);
       c_mu.SetTime(t);
       c_force.SetTime(t);
-      cfl = 0;
    };
 
    /// Assemble the element constant artifical diffusion
@@ -75,21 +75,21 @@ public:
    real_t GetElementEnergy(const Array<const FiniteElement *>&el,
                            ElementTransformation &Tr,
                            const Array<const Vector *> &elfun,
-                           const Array<const Vector *> &elrate) override;
+                           const Array<const Vector *> &elrate);
 
    /// Assemble the element interior residual vectors
    void AssembleElementVector(const Array<const FiniteElement *> &el,
                               ElementTransformation &Tr,
                               const Array<const Vector *> &elsol,
                               const Array<const Vector *> &elrate,
-                              const Array<Vector *> &elvec) override;
+                              const Array<Vector *> &elvec);
 
    /// Assemble the element interior gradient matrices
    void AssembleElementGrad(const Array<const FiniteElement*> &el,
                             ElementTransformation &Tr,
                             const Array<const Vector *> &elsol,
                             const Array<const Vector *> &elrate,
-                            const Array2D<DenseMatrix *> &elmats) override;
+                            const Array2D<DenseMatrix *> &elmats);
 };
 
 /** This class defines the time-dependent integrator for the
@@ -104,21 +104,23 @@ private:
    Coefficient &c_rho;
 
    /// Numerical parameters
+   real_t dt = -1.0;
    DenseMatrix Gij;
    Vector hn;
 
    /// Dimension data
    int dim = -1;
+   //Array2D<int> hmap;
 
    /// Physical values
-   Vector u, nor, traction;
+   Vector u, dudt, f, grad_p, res_m, up, nor, traction;
    DenseMatrix flux;
 
    /// Solution & Residual vector
    DenseMatrix elf_u, elf_du, elv_u;
 
    /// Shape function data
-   Vector sh_u, ushg_u, sh_p;
+   Vector sh_u, ushg_u, sh_p, dupdu;
    DenseMatrix shg_u, shh_u, shg_p, grad_u, hess_u;
 
    /// Set dimension
@@ -130,9 +132,10 @@ public:
       : c_rho(rho_) {};
 
 
-   /// Set the time @a t
-   void SetTime(const real_t &t) override
+   /// Set the timestep size @a dt_
+   void SetTimeAndStep(const real_t &t, const real_t &dt_)
    {
+      dt = dt_;
       c_rho.SetTime(t);
    };
 
@@ -142,7 +145,7 @@ public:
                            FaceElementTransformations &Tr,
                            const Array<const Vector *> &elfun,
                            const Array<const Vector *> &elrate,
-                           const Array<Vector *> &elvect) override;
+                           const Array<Vector *> &elvect);
 
    /// Assemble the outflow boundary gradient matrices
    void AssembleFaceGrad(const Array<const FiniteElement *>&el1,
@@ -150,7 +153,7 @@ public:
                          FaceElementTransformations &Tr,
                          const Array<const Vector *> &elfun,
                          const Array<const Vector *> &elrate,
-                         const Array2D<DenseMatrix *> &elmats) override;
+                         const Array2D<DenseMatrix *> &elmats);
 };
 
 /** This class defines the time-dependent integrator for the
@@ -167,6 +170,7 @@ private:
    VectorCoefficient &c_sol;
 
    /// Numerical parameters
+   real_t dt = -1.0;
    DenseMatrix Gij;
    Vector hn;
 
@@ -174,7 +178,7 @@ private:
    int dim = -1;
 
    /// Physical values
-   Vector u, ug, ud,  nor, traction;
+   Vector u, dudt, f, grad_p, res_m, up, nor, traction;
    DenseMatrix flux;
 
    /// Solution & Residual vector
@@ -200,9 +204,10 @@ public:
                     VectorCoefficient &sol_)
       : c_rho(rho_), c_mu(mu_), c_sol(sol_) {};
 
-   /// Set the time @a d
-   void SetTime(const real_t &t) override
+   /// Set the timestep size @a dt_
+   void SetTimeAndStep(const real_t &t, const real_t &dt_)
    {
+      dt = dt_;
       c_rho.SetTime(t);
       c_mu.SetTime(t);
       c_sol.SetTime(t);
@@ -214,7 +219,7 @@ public:
                            FaceElementTransformations &Tr,
                            const Array<const Vector *> &elfun,
                            const Array<const Vector *> &elrate,
-                           const Array<Vector *> &elvect) override;
+                           const Array<Vector *> &elvect);
 
    /// Assemble the outflow boundary gradient matrices
    void AssembleFaceGrad(const Array<const FiniteElement *>&el1,
@@ -222,7 +227,7 @@ public:
                          FaceElementTransformations &Tr,
                          const Array<const Vector *> &elfun,
                          const Array<const Vector *> &elrate,
-                         const Array2D<DenseMatrix *> &elmats) override;
+                         const Array2D<DenseMatrix *> &elmats);
 };
 
 /// Newton's method for solving F(x)=b for a given operator F.
@@ -238,23 +243,18 @@ private:
    // Compute the norms for each component
    void Norms(const Vector &r,Vector& norm) const;
 
-   bool parallel = false;
-
 public:
    // Constructor, provide MPI context and component subdivision
    NewtonSystemSolver( Array<int> &offsets)
       : bOffsets(offsets)
    {
       nvar = bOffsets.Size()-1;
-      parallel = false;
-
    }
 
    NewtonSystemSolver(MPI_Comm comm_, Array<int> &offsets)
       : NewtonSolver(comm_), bOffsets(offsets)
    {
       nvar = bOffsets.Size()-1;
-      parallel = true;
    }
 
    /// Solve the nonlinear system with right-hand side @a b.

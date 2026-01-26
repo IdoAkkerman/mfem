@@ -29,11 +29,12 @@ void line(int len)
    cout<<"\n";
 }
 
-int problem = 0;
+int problem = 1;
 
 void CheckBoundaries(Array<bool> &bnd_flags,
                      Array<int> &markers,
-                     Array<int> &bc_bnds)
+                     Array<int> &bc_bnds,
+                     int mark = 1)
 {
    int amax = bnd_flags.Size();
    markers.SetSize(amax);
@@ -51,7 +52,7 @@ void CheckBoundaries(Array<bool> &bnd_flags,
          mfem_error("Boundary specified more then once.");
       }
       bnd_flags[bnd] = true;
-      markers[bnd] = 1;
+      markers[bnd] = mark;
    }
 }
 
@@ -130,10 +131,12 @@ public:
       if ( ( it%interval == 0) || final )
       {
          mfem::out<<prefix<<" iteration "<<std::setw(3)<<it
+                  <<": ||r|| = "
                   <<std::setw(8)<<std::defaultfloat<<std::setprecision(3)
-                  <<": ||r|| = "<<norm
+                  <<norm
+                  <<", ||r||/||r_0|| = "
                   <<std::setw(6)<<std::fixed<<std::setprecision(2)
-                  <<", ||r||/||r_0|| = "<<100*norm/norm0<<" %\n";
+                  <<100*norm/norm0<<" %\n";
       }
    };
 
@@ -202,7 +205,6 @@ int main(int argc, char *argv[])
    int num_procs = Mpi::WorldSize();
    int myid = Mpi::WorldRank();
    Hypre::Init();
-   //printInfo();
 
    // 2. Parse command-line options.
    OptionsParser args(argc, argv);
@@ -364,7 +366,7 @@ int main(int argc, char *argv[])
          suction_marker, blowing_marker, master_marker, slave_marker;
 
    CheckBoundaries(bnd_flag, strong_marker, strong_bdr);
-   CheckBoundaries(bnd_flag, weak_marker, weak_bdr);
+   CheckBoundaries(bnd_flag, weak_marker, weak_bdr, 2);
    CheckBoundaries(bnd_flag, outflow_marker, outflow_bdr);
    CheckBoundaries(bnd_flag, suction_marker, suction_bdr);
    CheckBoundaries(bnd_flag, blowing_marker, blowing_bdr);
@@ -470,8 +472,12 @@ int main(int argc, char *argv[])
    // Set up the preconditioner
    JacobianPreconditioner jac_prec(bOffsets);
 
-   HypreSmoother* pc_mom = new HypreSmoother();
+   HypreILU* pc_mom = new HypreILU();
+   //HypreILU* pc_cont = new HypreILU();
+
+   //HypreSmoother* pc_mom = new HypreSmoother();
    HypreILU* pc_cont = new HypreILU();
+
 
    jac_prec.SetPreconditioner(0, pc_mom);
    jac_prec.SetPreconditioner(1, pc_cont);
@@ -510,8 +516,7 @@ int main(int argc, char *argv[])
 
    // Define weak form and evolution
    ParBlockTimeDepNonlinearForm form(spaces);
-   form.AddTimeDepDomainIntegrator(
-      new RBVMSIntegrator(rho, mu, force));
+   form.AddTimeDepDomainIntegrator(new RBVMSIntegrator(rho, mu, force));
 
    form.AddTimeDepBdrFaceIntegrator(new OutflowIntegrator(rho),
                                     outflow_marker);
@@ -532,7 +537,7 @@ int main(int argc, char *argv[])
    form.SetEssentialBC(marker,rhs);
    //}
 
-   Evolution evo(form, newton_solver);
+   BlockEvolution evo(form, newton_solver);
 
    real_t t = 0.0;
    evo.SetTime(t);
@@ -616,11 +621,27 @@ int main(int argc, char *argv[])
       t = 0.0; si = 0; ri = 1; vi = 1;
       sol_u.SetTime(-1.0);
       sol_p.SetTime(-1.0);
-      x_u.ProjectCoefficient(sol_u);
-      x_p.ProjectCoefficient(sol_p);
+      x_u.ProjectCoefficient(sol_u, ProjectType::ELEMENT);
+      x_p.ProjectCoefficient(sol_p, ProjectType::ELEMENT);
 
       x_u.GetTrueDofs(xp.GetBlock(0));
       x_p.GetTrueDofs(xp.GetBlock(1));
+
+      if (nstate == 1)
+      {
+         // Print header
+         if (Mpi::Root())
+         {
+            line(80);
+            cout<<" Solve for initial rate. " << endl;
+            cout<<std::defaultfloat<<std::setprecision(4);
+            cout<<"   dt = " << dt << endl;
+            line(80);
+         }
+         //evo.ImplicitSolve(dt,xp,dxp);
+         dxp = 0.0;
+         ode_solver_ws->GetState().Append(dxp);
+      }
 
       // Visualize initial condition
       vdc.SetCycle(0);
@@ -646,28 +667,30 @@ int main(int argc, char *argv[])
 
    // Open output file
    std::ofstream os;
-
-   std::ostringstream filename;
-   filename << "output_"<<std::setw(6)<<setfill('0')<<si<< ".dat";
-   os.open(filename.str().c_str());
-
-   // Header
-   char dimName[] = "xyz";
-   int i = 6;
-   os <<"# 1: step"<<"\t"<<"2: time"<<"\t"<<"3: dt"<<"\t"
-      <<"4: cfl"<<"\t"<<"5: outflow"<<"\t";
-
-   for (int b=0; b<pmesh.bdr_attributes.Size(); ++b)
+   if (Mpi::Root())
    {
-      int bnd = pmesh.bdr_attributes[b];
-      for (int v=0; v<dim; ++v)
+      std::ostringstream filename;
+      filename << "output_"<<std::setw(6)<<setfill('0')<<si<< ".dat";
+      os.open(filename.str().c_str());
+
+      // Header
+      char dimName[] = "xyz";
+      int i = 6;
+      os <<"# 1: step"<<"\t"<<"2: time"<<"\t"<<"3: dt"<<"\t"
+         <<"4: cfl"<<"\t"<<"5: outflow"<<"\t";
+
+      for (int b=0; b<pmesh.bdr_attributes.Size(); ++b)
       {
-         std::ostringstream forcename;
-         forcename <<i++<<": F"<<dimName[v]<<"_"<<bnd;
-         os<<forcename.str()<<"\t";
+         int bnd = pmesh.bdr_attributes[b];
+         for (int v=0; v<dim; ++v)
+         {
+            std::ostringstream forcename;
+            forcename <<i++<<": F"<<dimName[v]<<"_"<<bnd;
+            os<<forcename.str()<<"\t";
+         }
       }
+      os<<endl;
    }
-   os<<endl;
 
    // Loop till final time reached
    while (t < t_final)
@@ -690,7 +713,7 @@ int main(int argc, char *argv[])
       si++;
 
       // Postprocess solution
-      real_t cfl = 0.0;//form.GetCFL();
+      real_t cfl = 0;//form.GetCFL();
       real_t outflow = 0.0;//form.GetOutflow();
       DenseMatrix bdrForce;// = form.GetForce();
       /*      if (Mpi::Root())
@@ -826,9 +849,11 @@ int main(int argc, char *argv[])
          }
 
       }
-
-      cout<<endl<<endl;
-      cout<<"\n"<<std::flush;
+      if (Mpi::Root())
+      {
+         cout<<endl<<endl;
+         cout<<"\n"<<std::flush;
+      }
    }
    os.close();
 

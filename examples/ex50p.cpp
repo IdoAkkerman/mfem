@@ -1,9 +1,9 @@
-//                                MFEM Example 50
+//                                MFEM Example 50p
 //
-// Compile with: make ex50
+// Compile with: make ex50p
 //
 // Sample runs:
-//    ex50 -m ../data/periodic-square.mesh
+//    mpirun -n 4 ex50p -m ../data/periodic-square.mesh -r 3
 //
 // Description: This examples solves the unsteady convection-diffusion-reaction
 //              using a stabilized formulation.
@@ -200,13 +200,13 @@ int main(int argc, char *argv[])
    args.Parse();
    if (!args.Good())
    {
-      args.PrintUsage(cout);
+      if (Mpi::Root()) { args.PrintUsage(cout); }
       return 1;
    }
-   args.PrintOptions(cout);
+   if (Mpi::Root()) { args.PrintOptions(cout); }
 
    Device device(device_config);
-   device.Print();
+   if (Mpi::Root()) { device.Print(); }
 
    // 2. Read the mesh from the given mesh file. We can handle geometrically
    //    periodic meshes in this code.
@@ -235,7 +235,27 @@ int main(int argc, char *argv[])
    H1_FECollection fec(order, dim);
    ParFiniteElementSpace fes(&pmesh, &fec);
 
-   cout << "Number of unknowns: " << fes.GetVSize() << endl;
+   {
+      Array<int> dof(num_procs),tdof(num_procs);
+      dof = 0;
+      dof[myid] = fes.GetTrueVSize();
+      MPI_Reduce(dof.GetData(), tdof.GetData(), num_procs,
+                 MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+      if (Mpi::Root())
+      {
+         cout << "Number of unknowns:\n";
+         cout << " - True        = "; tdof.Print(mfem::out, num_procs);
+      }
+
+      dof = 0;
+      dof[myid] = fes.GetVSize();
+      MPI_Reduce(dof.GetData(), tdof.GetData(), num_procs,
+                 MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+      if (Mpi::Root())
+      {
+         cout << " - Prolongated = "; tdof.Print(mfem::out, num_procs);
+      }
+   }
 
    // 6. Set up and assemble the bilinear and linear forms corresponding to the
    //    DG discretization. The DGTraceIntegrator involves integrals over mesh
@@ -305,10 +325,13 @@ int main(int argc, char *argv[])
       sout.open(vishost, visport);
       if (!sout)
       {
-         cout << "Unable to connect to GLVis server at "
-              << vishost << ':' << visport << endl;
          visualization = false;
-         cout << "GLVis visualization disabled.\n";
+         if (Mpi::Root())
+         {
+            cout << "Unable to connect to GLVis server at "
+                 << vishost << ':' << visport << endl;
+            cout << "GLVis visualization disabled.\n";
+         }
       }
       else
       {
@@ -316,8 +339,11 @@ int main(int argc, char *argv[])
          sout << "solution\n" << pmesh << u_gf;
          sout << "pause\n";
          sout << flush;
-         cout << "GLVis visualization paused."
-              << " Press space (in the GLVis window) to resume it.\n";
+         if (Mpi::Root())
+         {
+            cout << "GLVis visualization paused."
+                 << " Press space (in the GLVis window) to resume it.\n";
+         }
       }
    }
 
@@ -379,7 +405,11 @@ int main(int argc, char *argv[])
       if (done || ti % vis_steps == 0)
       {
          u_gf.Distribute(u_vec);
-         cout << "time step: " << ti << ", time: " << t << endl;
+
+         if (Mpi::Root())
+         {
+            cout << "time step: " << ti << ", time: " << t << endl;
+         }
 
          if (visualization)
          {

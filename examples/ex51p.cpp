@@ -1,9 +1,9 @@
-//                                MFEM Example 51
+//                                MFEM Example 51p
 //
-// Compile with: make ex51
+// Compile with: make ex51p
 //
 // Sample runs:
-//    ex51 -m ../data/periodic-square.mesh
+//    mpiruni -n 4 ex51p -m ../data/periodic-square.mesh -r 3
 //
 // Description:  This examples solves a time dependent nonlinear burgers equation
 
@@ -196,13 +196,13 @@ int main(int argc, char *argv[])
    args.Parse();
    if (!args.Good())
    {
-      args.PrintUsage(cout);
+      if (Mpi::Root()) {args.PrintUsage(cout);}
       return 1;
    }
-   args.PrintOptions(cout);
+   if (Mpi::Root()) {args.PrintOptions(cout);}
 
    Device device(device_config);
-   device.Print();
+   if (Mpi::Root()) { device.Print(); }
 
    // 2. Read the mesh from the given mesh file. We can handle geometrically
    //    periodic meshes in this code.
@@ -231,7 +231,27 @@ int main(int argc, char *argv[])
    H1_FECollection fec(order, dim);
    ParFiniteElementSpace fes(&pmesh, &fec, dim);
 
-   cout << "Number of unknowns: " << fes.GetVSize() << endl;
+   {
+      Array<int> dof(num_procs),tdof(num_procs);
+      dof = 0;
+      dof[myid] = fes.GetTrueVSize();
+      MPI_Reduce(dof.GetData(), tdof.GetData(), num_procs,
+                 MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+      if (Mpi::Root())
+      {
+         cout << "Number of unknowns:\n";
+         cout << " - True        = "; tdof.Print(mfem::out, num_procs);
+      }
+
+      dof = 0;
+      dof[myid] = fes.GetVSize();
+      MPI_Reduce(dof.GetData(), tdof.GetData(), num_procs,
+                 MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+      if (Mpi::Root())
+      {
+         cout << " - Prolongated = "; tdof.Print(mfem::out, num_procs);
+      }
+   }
 
    // 6. Set up and assemble the bilinear and linear forms corresponding to the
    //    DG discretization. The DGTraceIntegrator involves integrals over mesh
@@ -241,16 +261,17 @@ int main(int argc, char *argv[])
    // 7. Define the initial conditions, save the corresponding grid function to
    //    a file and (optionally) save data in the VisIt format and initialize
    //    GLVis visualization.
-   ParGridFunction u(&fes);
-   u.ProjectCoefficient(u0);
-
+   ParGridFunction u_gf(&fes);
+   u_gf.ProjectCoefficient(u0);
+   Vector u_vec(fes.TrueVSize());
+   u_gf.GetTrueDofs(u_vec);
    {
       ofstream omesh("ex51p.mesh");
       omesh.precision(precision);
       pmesh.Print(omesh);
       ofstream osol("ex51p-init.gf");
       osol.precision(precision);
-      u.Save(osol);
+      u_gf.Save(osol);
    }
 
    // Create data collection for solution output: either VisItDataCollection for
@@ -272,7 +293,7 @@ int main(int argc, char *argv[])
          dc->SetPrecision(precision);
       }
       dc->SetPrefixPath("Example51p");
-      dc->RegisterField("solution", &u);
+      dc->RegisterField("solution", &u_gf);
       dc->SetCycle(0);
       dc->SetTime(0.0);
       dc->Save();
@@ -283,7 +304,7 @@ int main(int argc, char *argv[])
    {
       pd = new ParaViewDataCollection("Example51", &pmesh);
       pd->SetPrefixPath("ParaView");
-      pd->RegisterField("solution", &u);
+      pd->RegisterField("solution", &u_gf);
       pd->SetLevelsOfDetail(order);
       pd->SetDataFormat(VTKFormat::BINARY);
       pd->SetHighOrderOutput(true);
@@ -300,19 +321,25 @@ int main(int argc, char *argv[])
       sout.open(vishost, visport);
       if (!sout)
       {
-         cout << "Unable to connect to GLVis server at "
-              << vishost << ':' << visport << endl;
          visualization = false;
-         cout << "GLVis visualization disabled.\n";
+         if (Mpi::Root())
+         {
+            cout << "Unable to connect to GLVis server at "
+                 << vishost << ':' << visport << endl;
+            cout << "GLVis visualization disabled.\n";
+         }
       }
       else
       {
          sout.precision(precision);
-         sout << "solution\n" << pmesh << u;
+         sout << "solution\n" << pmesh << u_gf;
          sout << "pause\n";
          sout << flush;
-         cout << "GLVis visualization paused."
-              << " Press space (in the GLVis window) to resume it.\n";
+         if (Mpi::Root())
+         {
+            cout << "GLVis visualization paused."
+                 << " Press space (in the GLVis window) to resume it.\n";
+         }
       }
    }
 
@@ -344,7 +371,7 @@ int main(int argc, char *argv[])
    newton_solver.SetPrintLevel(1);
    newton_solver.SetRelTol(Newton_RelTol);
    newton_solver.SetAbsTol(1e-12);
-   newton_solver.SetMaxIter(Newton_MaxIter );
+   newton_solver.SetMaxIter(Newton_MaxIter);
    newton_solver.SetSolver(gmres);
 
    Evolution adv(form, newton_solver);
@@ -357,17 +384,21 @@ int main(int argc, char *argv[])
    for (int ti = 0; !done; )
    {
       real_t dt_real = min(dt, t_final - t);
-      ode_solver->Step(u, t, dt_real);
+      ode_solver->Step(u_vec, t, dt_real);
       ti++;
       done = (t >= t_final - 1e-8*dt);
 
       if (done || ti % vis_steps == 0)
       {
-         cout << "time step: " << ti << ", time: " << t << endl;
+         u_gf.Distribute(u_vec);
+         if (Mpi::Root())
+         {
+            cout << "time step: " << ti << ", time: " << t << endl;
+         }
 
          if (visualization)
          {
-            sout << "solution\n" << pmesh << u << flush;
+            sout << "solution\n" << pmesh << u_gf << flush;
          }
 
          if (visit)
@@ -391,7 +422,7 @@ int main(int argc, char *argv[])
    {
       ofstream osol("ex51p-final.gf");
       osol.precision(precision);
-      u.Save(osol);
+      u_gf.Save(osol);
    }
 
    // 10. Free the used memory.

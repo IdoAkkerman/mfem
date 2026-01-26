@@ -1645,19 +1645,52 @@ BlockNonlinearForm::~BlockNonlinearForm()
 }*/
 
 
-void TimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
-                                              const real_t &dt_,
-                                              const Vector &x0_)
+void TimeDepNonlinearForm::SetTime(const real_t &t_)
 {
    t = t_;
+   for (int i = 0; i <  tdnfi.Size(); i++)
+   {
+      tdnfi[i]->SetTime(t);
+   }
+   for (int i = 0; i <  tbnfi.Size(); i++)
+   {
+      tbnfi[i]->SetTime(t);
+   }
+   for (int i = 0; i <  tfnfi.Size(); i++)
+   {
+      tfnfi[i]->SetTime(t);
+   }
+   for (int i = 0; i < tbfnfi.Size(); i++)
+   {
+      tbfnfi[i]->SetTime(t);
+   }
+}
+
+void TimeDepNonlinearForm::SetTimeStep(const real_t &dt_)
+{
    dt = dt_;
+   for (int i = 0; i <  tdnfi.Size(); i++)
+   {
+      tdnfi[i]->SetTimeStep(dt);
+   }
+   for (int i = 0; i <  tbnfi.Size(); i++)
+   {
+      tbnfi[i]->SetTimeStep(dt);
+   }
+   for (int i = 0; i <  tfnfi.Size(); i++)
+   {
+      tfnfi[i]->SetTimeStep(dt);
+   }
+   for (int i = 0; i < tbfnfi.Size(); i++)
+   {
+      tbfnfi[i]->SetTimeStep(dt);
+   }
+}
+
+void TimeDepNonlinearForm::SetInitialSolution(const Vector &x0_)
+{
    x0 = x0_;
    x.SetSize(x0.Size());
-
-   for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i < tbfnfi.Size(); i++) { tbfnfi[i]->SetTimeStep(dt); }
 }
 
 real_t TimeDepNonlinearForm::GetGridFunctionEnergy(const Vector &dx) const
@@ -2268,46 +2301,61 @@ TimeDepNonlinearForm::~TimeDepNonlinearForm()
    }
 }
 
-
-
-const BlockVector &BlockTimeDepNonlinearForm::Prolongate2(
-   const BlockVector &bdx) const
-{
-   MFEM_VERIFY(bdx.Size() == Width(), "invalid input BlockVector size");
-
-   if (needs_prolongation)
-   {
-      aux3.Update(block_offsets);
-      for (int s = 0; s < fes.Size(); s++)
-      {
-         if (P[s])
-         {
-            P[s]->Mult(bdx.GetBlock(s), aux3.GetBlock(s));
-         }
-         else
-         {
-            aux3.GetBlock(s) = bdx.GetBlock(s);
-         }
-      }
-      return aux3;
-   }
-   return bdx;
-}
-
-
-
-void BlockTimeDepNonlinearForm::SetTimeAndSolution(const real_t &t_,
-                                                   const real_t &dt_,
-                                                   const Vector &x0_)
+void BlockTimeDepNonlinearForm::SetTime(const real_t &t_)
 {
    t = t_;
+   for (int i = 0; i <  tdnfi.Size(); i++)
+   {
+      tdnfi[i]->SetTime(t);
+   }
+   for (int i = 0; i <  tbnfi.Size(); i++)
+   {
+      tbnfi[i]->SetTime(t);
+   }
+   for (int i = 0; i <  tfnfi.Size(); i++)
+   {
+      tfnfi[i]->SetTime(t);
+   }
+   for (int i = 0; i < tbfnfi.Size(); i++)
+   {
+      tbfnfi[i]->SetTime(t);
+   }
+}
+
+void BlockTimeDepNonlinearForm::SetTimeStep(const real_t &dt_)
+{
    dt = dt_;
+   for (int i = 0; i <  tdnfi.Size(); i++)
+   {
+      tdnfi[i]->SetTimeStep(dt);
+   }
+   for (int i = 0; i <  tbnfi.Size(); i++)
+   {
+      tbnfi[i]->SetTimeStep(dt);
+   }
+   for (int i = 0; i <  tfnfi.Size(); i++)
+   {
+      tfnfi[i]->SetTimeStep(dt);
+   }
+   for (int i = 0; i < tbfnfi.Size(); i++)
+   {
+      tbfnfi[i]->SetTimeStep(dt);
+   }
+}
+
+void BlockTimeDepNonlinearForm::SetInitialSolution(const Vector &x0_)
+{
    x0 = x0_;
    x.SetSize(x0.Size());
-   for (int i = 0; i <  tdnfi.Size(); i++) { tdnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i <  tbnfi.Size(); i++) { tbnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i <  tfnfi.Size(); i++) { tfnfi[i]->SetTimeStep(dt); }
-   for (int i = 0; i < tbfnfi.Size(); i++) { tbfnfi[i]->SetTimeStep(dt); }
+   /* TBD
+      int nbdr = fes[0]->GetMesh()->bdr_attributes.Max();
+      int vdim = 0;
+      for (int s = 0; s < fes.Size(); s++)
+      {
+         vdim += fes[s]->GetVDim();
+      }
+
+      bdr_flux.SetSize(nbdr,vdim);*/
 }
 
 real_t BlockTimeDepNonlinearForm::GetEnergyBlocked(const BlockVector &bx,
@@ -2545,6 +2593,7 @@ void BlockTimeDepNonlinearForm::MultBlocked(const BlockVector &bx,
       }
    }
 
+
    if (tbnfi.Size())
    {
       // Which boundary attributes need to be processed?
@@ -2723,7 +2772,7 @@ void BlockTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
    BlockVector by(y, block_trueOffsets);
 
    const BlockVector &pbx = Prolongate(bx);
-   const BlockVector &pbdx = Prolongate2(bdx);
+   const BlockVector &pbdx = bdx;// ??Prolongate2(bdx);
    if (needs_prolongation)
    {
       aux2.Update(block_offsets);
@@ -2747,6 +2796,145 @@ void BlockTimeDepNonlinearForm::Mult(const Vector &dx, Vector &y) const
          by.GetBlock(s) = pby.GetBlock(s);
       }
       by.GetBlock(s).SetSubVector(*ess_tdofs[s], 0.0);
+   }
+}
+
+void BlockTimeDepNonlinearForm::ConservativeFlux(const Vector &dx,
+                                                 DenseMatrix &flux)
+{
+   // Stash
+   Array<Array<int> *> ess_tdofs_tmp(fes.Size());
+   for (int s = 0; s < fes.Size(); s++)
+   {
+      ess_tdofs_tmp[s] = ess_tdofs[s];
+      ess_tdofs[s] = new Array<int>();
+   }
+
+   Array<Array<int> *> tdnfi_marker_tmp(tdnfi.Size());
+   for (int s = 0; s < tdnfi.Size(); s++)
+   {
+      tdnfi_marker_tmp[s] = tdnfi_marker[s];
+      if (tdnfi_marker[s])
+      {
+         tdnfi_marker[s] = new Array<int>(*tdnfi_marker[s]);
+         for (int b = 0; b < tdnfi_marker[s]->Size(); b++)
+         {
+            (*tdnfi_marker[s])[b] = (*tdnfi_marker[s])[b] == 1 ? 1 : 0;
+         }
+      }
+      else
+      {
+         tdnfi_marker[s] = NULL;
+      }
+   }
+
+   Array<Array<int> *> tbnfi_marker_tmp(tbnfi.Size());
+   for (int s = 0; s < tbnfi.Size(); s++)
+   {
+      tbnfi_marker_tmp[s] = tbnfi_marker[s];
+      if (tbnfi_marker[s])
+      {
+         tbnfi_marker[s] = new Array<int>(*tbnfi_marker[s]);
+         for (int b = 0; b < tbnfi_marker[s]->Size(); b++)
+         {
+            (*tbnfi_marker[s])[b] = (*tbnfi_marker[s])[b] == 1 ? 1 : 0;
+         }
+      }
+      else
+      {
+         tbnfi_marker[s] = NULL;
+      }
+   }
+
+   Array<Array<int> *> tbfnfi_marker_tmp(tbfnfi.Size());
+   for (int s = 0; s < tbfnfi.Size(); s++)
+   {
+      tbfnfi_marker_tmp[s] = tbfnfi_marker[s];
+      if (tbfnfi_marker[s])
+      {
+         tbfnfi_marker[s] = new Array<int>(*tbfnfi_marker[s]);
+         for (int b = 0; b < tbfnfi_marker[s]->Size(); b++)
+         {
+            (*tbfnfi_marker[s])[b] = (*tbfnfi_marker[s])[b] == 1 ? 1 : 0;
+         }
+      }
+      else
+      {
+         tbfnfi_marker[s] = NULL;
+      }
+   }
+
+   //
+   //  ys.Update(block_trueOffsets);
+
+
+
+
+
+
+   BlockVector y(block_trueOffsets);
+   y = 0.0;
+   Mult(dx, y);
+
+   int nbdr = fes[0]->GetMesh()->bdr_attributes.Max();
+   Array<int> dofs, bdr(nbdr);
+   Vector vrhs;
+
+   int vdim = 0;
+   for (int s = 0; s < fes.Size(); s++)
+   {
+      vdim += fes[s]->GetVDim();
+   }
+   flux.SetSize(nbdr,vdim);
+
+   vdim =0;
+   for (int s = 0; s < fes.Size(); s++)
+   {
+      /*if (cP[s])
+      {
+         cP[s]->MultTranspose(pby.GetBlock(s), by.GetBlock(s));
+      }
+      else if (needs_prolongation)
+      {
+         by.GetBlock(s) = pby.GetBlock(s);
+      }*/
+
+      for (int b=0; b<nbdr; ++b)
+      {
+         bdr = 0; bdr[b] = 1;
+         for (int v = 0; v < fes[s]->GetVDim(); v++)
+         {
+            fes[s]->GetEssentialTrueDofs(bdr, dofs, v);
+            y.GetBlock(s).GetSubVector(dofs, vrhs);
+            flux(b,vdim + v) = vrhs.Sum();
+         }
+      }
+      vdim += fes[s]->GetVDim();
+   }
+
+   // Recover stash
+   for (int s = 0; s < fes.Size(); s++)
+   {
+      delete ess_tdofs[s];
+      ess_tdofs[s] = ess_tdofs_tmp[s];
+   }
+
+   for (int s = 0; s < tdnfi.Size(); s++)
+   {
+      delete tdnfi_marker[s];
+      tdnfi_marker[s] =  tdnfi_marker_tmp[s];
+   }
+
+   for (int s = 0; s < tbnfi.Size(); s++)
+   {
+      delete tbnfi_marker[s];
+      tbnfi_marker[s] =  tbnfi_marker_tmp[s];
+   }
+
+   for (int s = 0; s < tbfnfi.Size(); s++)
+   {
+      delete tbfnfi_marker[s];
+      tbfnfi_marker[s] =  tbfnfi_marker_tmp[s];
    }
 }
 
@@ -3050,7 +3238,7 @@ Operator &BlockTimeDepNonlinearForm::GetGradient(const Vector &dx) const
    BlockVector bx(const_cast<Vector&>(x), block_trueOffsets);
    BlockVector bdx(const_cast<Vector&>(dx), block_trueOffsets);
    const BlockVector &pbx = Prolongate(bx);
-   const BlockVector &pbdx = Prolongate2(bdx);
+   const BlockVector &pbdx = bdx;// ??Prolongate2(bdx);
    ComputeGradientBlocked(pbx,pbdx);
 
    Array2D<SparseMatrix *> mGrads(fes.Size(), fes.Size());
@@ -3144,29 +3332,43 @@ BlockTimeDepNonlinearForm::~BlockTimeDepNonlinearForm()
 Evolution::Evolution(TimeDepNonlinearForm &form_,
                      IterativeSolver &solver_)
    : TimeDependentOperator(form_.Width(), 0.0, IMPLICIT),
-     form(&form_), bform(nullptr), solver(solver_)
+     form(&form_), solver(solver_)
 {
    solver.SetOperator(*form);
 }
 
-// Evolution Constructor
-Evolution::Evolution(BlockTimeDepNonlinearForm &bform_,
-                     IterativeSolver &solver_)
+// Solve time dependent problem
+void Evolution::ImplicitSolve(const real_t dt, const Vector &u0,
+                              Vector &dudt)
+{
+   form->SetTimeAndStep(t, dt);
+   form->SetInitialSolution(u0);
+   Vector zero;
+   dudt = 0.0;
+   solver.Mult(zero, dudt);
+   form->ConservativeFlux(dudt, bdr_flux);
+}
+
+
+// BlockEvolution Constructor
+BlockEvolution::BlockEvolution(BlockTimeDepNonlinearForm &bform_,
+                               IterativeSolver &solver_)
    : TimeDependentOperator(bform_.Width(), 0.0, IMPLICIT),
-     form(nullptr), bform(&bform_), solver(solver_)
+     bform(&bform_), solver(solver_)
 {
    solver.SetOperator(*bform);
 }
 
 // Solve time dependent problem
-void Evolution::Solve(const real_t dt, const Vector &u0,
-                      Vector &dudt) const
+void BlockEvolution::ImplicitSolve(const real_t dt, const Vector &u0,
+                                   Vector &dudt)
 {
-   if (form) { const_cast<Evolution *>(this)->form->SetTimeAndSolution(t, dt, u0); }
-   if (bform) { const_cast<Evolution *>(this)->bform->SetTimeAndSolution(t, dt, u0); }
+   bform->SetTimeAndStep(t, dt);
+   bform->SetInitialSolution(u0);
    Vector zero;
    dudt = 0.0;
    solver.Mult(zero, dudt);
+   bform->ConservativeFlux(dudt, bdr_flux);
 }
 
 }
