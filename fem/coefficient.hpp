@@ -1758,6 +1758,64 @@ public:
    { return pow(a->Eval(T, ip), p); }
 };
 
+/// Scalar coefficient defined as a absolute value
+class AbsoluteCoefficient : public Coefficient
+{
+private:
+   Coefficient * a;
+
+public:
+   /// Construct with a coefficient.  Result is |A|.
+   AbsoluteCoefficient(Coefficient &A)
+      : a(&A) { }
+
+   /// Set the time for internally stored coefficients
+   void SetTime(real_t t) override { a->SetTime(t); }
+
+   /// Reset the base coefficient
+   void SetACoef(Coefficient &A) { a = &A; }
+   /// Return the base coefficient
+   Coefficient * GetACoef() const { return a; }
+
+   /// Evaluate the coefficient at @a ip.
+   real_t Eval(ElementTransformation &T,
+               const IntegrationPoint &ip) override
+   { return abs(a->Eval(T, ip)); }
+};
+
+
+/// Scalar coefficient defined as a Maximum value
+class MaxCoefficient : public Coefficient
+{
+private:
+   Coefficient * a;
+   Coefficient * b;
+
+public:
+   /// Construct with a coefficient.  Result is max(A, B).
+   MaxCoefficient(Coefficient &A, Coefficient &B)
+      : a(&A), b(&B) { }
+
+   /// Set the time for internally stored coefficients
+   void SetTime(real_t t) override { a->SetTime(t); b->SetTime(t); }
+
+   /// Reset the base coefficient
+   void SetACoef(Coefficient &A) { a = &A; }
+   /// Return the base coefficient
+   Coefficient * GetACoef() const { return a; }
+
+   /// Reset the base coefficient
+   void SetBCoef(Coefficient &B) { b = &B; }
+   /// Return the base coefficient
+   Coefficient * GetBCoef() const { return b; }
+
+   /// Evaluate the coefficient at @a ip.
+   real_t Eval(ElementTransformation &T,
+               const IntegrationPoint &ip) override
+   { return fmax(a->Eval(T, ip), b->Eval(T, ip)); }
+};
+
+
 
 /// Scalar coefficient defined as the inner product of two vector coefficients
 class InnerProductCoefficient : public Coefficient

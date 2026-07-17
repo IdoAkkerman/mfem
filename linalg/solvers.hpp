@@ -705,6 +705,10 @@ public:
 };
 
 /// GMRES method. (tolerances are squared)
+int GMRES(const Operator &A, Vector &x, const Vector &b,
+          int &max_iter, int m, real_t &tol, real_t atol, int printit);
+
+/// GMRES method. (tolerances are squared)
 int GMRES(const Operator &A, Vector &x, const Vector &b, Solver &M,
           int &max_iter, int m, real_t &tol, real_t atol, int printit);
 

@@ -1586,6 +1586,26 @@ void FGMRESSolver::Mult(const Vector &b, Vector &x) const
 }
 
 
+int GMRES(const Operator &A, Vector &x, const Vector &b,
+          int &max_iter, int m, real_t &tol, real_t atol, int printit)
+{
+   MFEM_PERF_FUNCTION;
+
+   GMRESSolver gmres;
+   gmres.SetPrintLevel(printit);
+   gmres.SetMaxIter(max_iter);
+   gmres.SetKDim(m);
+   gmres.SetRelTol(sqrt(tol));
+   gmres.SetAbsTol(sqrt(atol));
+   gmres.SetOperator(A);
+   gmres.Mult(b, x);
+   max_iter = gmres.GetNumIterations();
+   tol = gmres.GetFinalNorm()*gmres.GetFinalNorm();
+   return gmres.GetConverged();
+}
+
+
+
 int GMRES(const Operator &A, Vector &x, const Vector &b, Solver &M,
           int &max_iter, int m, real_t &tol, real_t atol, int printit)
 {

@@ -374,6 +374,22 @@ int main(int argc, char *argv[])
       mode_sock.close();
    }
 
+   // Save mesh in the VisIt format
+   if (true)
+   {
+
+      VisItDataCollection visit_dc("Ex11", pmesh);
+      visit_dc.RegisterField("solution", &x);
+      for (int i=0; i<nev; i++)
+      {
+         x = lobpcg->GetEigenvector(i);
+         visit_dc.SetCycle(i);
+         visit_dc.Save();
+      }
+   }
+
+
+
    // 12. Free the used memory.
    delete lobpcg;
    delete precond;

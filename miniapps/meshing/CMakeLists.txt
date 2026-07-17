@@ -96,6 +96,23 @@ add_mfem_miniapp(hpref
   MAIN hpref.cpp
   LIBRARIES mfem)
 
+add_mfem_miniapp(poincare
+  MAIN poincare.cpp
+  LIBRARIES mfem)
+
+add_mfem_miniapp(nurbs-mesher
+  MAIN nurbs-mesher.cpp
+  LIBRARIES mfem)
+
+add_mfem_miniapp(inverse-estimate
+  MAIN inverse-estimate.cpp
+  LIBRARIES mfem)
+
+add_mfem_miniapp(inverse-estimate2
+  MAIN inverse-estimate2.cpp
+  LIBRARIES mfem)
+
+
 # Add serial tests.
 if (MFEM_ENABLE_TESTING)
   set(SERIAL_TESTS

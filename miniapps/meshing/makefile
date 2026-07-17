@@ -22,9 +22,9 @@ MFEM_LIB_FILE = mfem_is_not_built
 
 SEQ_MINIAPPS = mobius-strip klein-bottle toroid trimmer twist mesh-explorer\
 	shaper extruder mesh-optimizer minimal-surface polar-nc reflector\
-	ref321 mesh-quality hpref
+	ref321 mesh-quality hpref nurbs-mesher
 PAR_MINIAPPS = pmesh-optimizer pminimal-surface pmesh-fitting fit-node-position\
-	phpref mesh-bounding-boxes
+	phpref mesh-bounding-boxes poincare inverse-estimate
 ifeq ($(MFEM_USE_MPI),NO)
    MINIAPPS = $(SEQ_MINIAPPS)
 else
