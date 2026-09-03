@@ -676,7 +676,7 @@ void TestGenericTransfer(Mesh *mesh, int order, int lor)
 {
    // Define NURBS gridfunction
    NURBSFECollection nurbs_coll(order);
-   FiniteElementSpace nurbs_fes(mesh, new NURBSExtension(mesh->NURBSext, order),
+   FiniteElementSpace nurbs_fes(mesh, new NURBSExtension(mesh->NURBSExt(), order),
                                 &nurbs_coll);
    GridFunction nurbs_gf(&nurbs_fes);
 
@@ -783,7 +783,7 @@ TEST_CASE("Generic Transfer Operator -- Vector", "[Dimension][Order][LOR]")
    }
 
    // Define NURBS gridfunction
-   FiniteElementSpace nurbs_fes(&mesh, new NURBSExtension(mesh.NURBSext, order),
+   FiniteElementSpace nurbs_fes(&mesh, new NURBSExtension(mesh.NURBSExt(), order),
                                 nurbs_fec, vdim, ordering);
    GridFunction nurbs_gf(&nurbs_fes);
 

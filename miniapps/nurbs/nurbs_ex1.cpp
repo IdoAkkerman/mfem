@@ -248,9 +248,9 @@ int main(int argc, char *argv[])
    //    in a refinement file. We choose 'ref_levels' to be the largest number
    //    that gives a final mesh with no more than 50,000 elements.
    {
-      if (mesh->NURBSext)
+      if (mesh->NURBSExt())
       {
-         int mOrder_cur = mesh->NURBSext->GetOrder();
+         int mOrder_cur = mesh->NURBSExt()->GetOrder();
          if ((mOrder_cur != NURBSFECollection::VariableOrder) &&
              (mOrder > 0))
          {

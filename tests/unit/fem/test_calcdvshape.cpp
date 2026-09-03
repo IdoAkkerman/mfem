@@ -35,7 +35,7 @@ void TestDivShape(Mesh *mesh, int order)
 {
    const int dim = mesh->Dimension();
    NURBS_HDivFECollection vfe_coll(order,dim);
-   FiniteElementSpace fes(mesh, new NURBSExtension(mesh->NURBSext, order),
+   FiniteElementSpace fes(mesh, new NURBSExtension(mesh->NURBSExt(), order),
                           &vfe_coll);
 
    Vector div_shape;
@@ -81,7 +81,7 @@ void TestCurlShape(Mesh *mesh, int order)
 {
    const int dim = mesh->Dimension();
    NURBS_HCurlFECollection vfe_coll(order,dim);
-   FiniteElementSpace fes(mesh, new NURBSExtension(mesh->NURBSext, order),
+   FiniteElementSpace fes(mesh, new NURBSExtension(mesh->NURBSExt(), order),
                           &vfe_coll);
 
    DenseMatrix curl_shape;

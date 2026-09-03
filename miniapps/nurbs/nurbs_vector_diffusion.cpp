@@ -160,7 +160,7 @@ int main(int argc, char *argv[])
 
    // 2. Read the mesh from the given mesh file.
    Mesh *mesh = new Mesh(mesh_file, 1, 1);
-   if (!mesh->NURBSext)
+   if (!mesh->IsNURBS())
    {
       mfem_error("Gradient of vector shape functions "
                  "only defined for NURBS elements.");
@@ -221,7 +221,7 @@ int main(int argc, char *argv[])
          mfem::out<<"Homogeneous BCs!!"<<std::endl;
          break;
    }
-   NURBSExtension *NURBSext  = new NURBSExtension(mesh->NURBSext, order);
+   NURBSExtension *NURBSext  = new NURBSExtension(mesh->NURBSExt(), order);
    mfem::out<<"Create NURBS fecollection "<<vfe_coll->Name()<<std::endl;
 
    FiniteElementSpace space(mesh, NURBSext, vfe_coll);

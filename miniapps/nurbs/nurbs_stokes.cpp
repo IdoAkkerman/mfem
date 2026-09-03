@@ -476,7 +476,7 @@ int main(int argc, char *argv[])
    FiniteElementCollection *l2_coll = nullptr;
    NURBSExtension *NURBSext = nullptr;
 
-   if (mesh->NURBSext && !pa)
+   if (mesh->IsNURBS() && !pa)
    {
       if (boundary_conditions == BC::STRONG)
       {
@@ -487,7 +487,7 @@ int main(int argc, char *argv[])
          hdiv_coll = new NURBS_HDivFECollection(order,dim);
       }
       l2_coll   = new NURBSFECollection(order);
-      NURBSext  = new NURBSExtension(mesh->NURBSext, order);
+      NURBSext  = new NURBSExtension(mesh->NURBSExt(), order);
       mfem::out<<"Create NURBS fec and ext"<<std::endl;
    }
    else
@@ -792,7 +792,7 @@ int main(int argc, char *argv[])
    {
       // Define a traditional NURBS space as long as ViSit does not read to new Vector FEs
       FiniteElementSpace ui_space(mesh,
-                                  new NURBSExtension(mesh->NURBSext, order),
+                                  new NURBSExtension(mesh->NURBSExt(), order),
                                   l2_coll, dim);
       GridFunction ui_gf(&ui_space);
       // ui_gf.ProjectCoefficient(uh_cf); Only works after PR #4326 is accepted
@@ -808,7 +808,7 @@ int main(int argc, char *argv[])
    {
       // Define a traditional NURBS space as long as Paraview does not read to new Vector FEs
       FiniteElementSpace ui_space(mesh,
-                                  new NURBSExtension(mesh->NURBSext, order),
+                                  new NURBSExtension(mesh->NURBSExt(), order),
                                   l2_coll, dim);
       GridFunction ui_gf(&ui_space);
       // ui_gf.ProjectCoefficient(uh_cf); Only works after PR #4326 is accepted
