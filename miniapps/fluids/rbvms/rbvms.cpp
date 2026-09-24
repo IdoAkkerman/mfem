@@ -320,7 +320,7 @@ int main(int argc, char *argv[])
 
    // Refine mesh
    {
-      if (mesh.NURBSext && (strlen(ref_file) != 0))
+      if (mesh.IsNURBS() && (strlen(ref_file) != 0))
       {
          mesh.RefineNURBSFromFile(ref_file);
       }
@@ -384,7 +384,7 @@ int main(int argc, char *argv[])
 
    // 4. Define a finite element space on the mesh.
    Array<FiniteElementCollection *> fecs(2);
-   if (mesh.NURBSext)
+   if (mesh.IsNURBS())
    {
       fecs[0] = new NURBSFECollection(order);
       fecs[1] = new NURBSFECollection(order);
