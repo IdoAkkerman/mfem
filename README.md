@@ -1,5 +1,5 @@
+```
                     TUD Ship
-
     _________  ___  ___  ________          ________  ___  ___  ___  ________
    |\___   ___\\  \|\  \|\   ___ \        |\   ____\|\  \|\  \|\  \|\   __  \
    \|___ \  \_\ \  \\\  \ \  \_|\ \       \ \  \___|\ \  \\\  \ \  \ \  \|\  \
@@ -8,6 +8,7 @@
           \ \__\ \ \_______\ \_______\        ____\_\  \ \__\ \__\ \__\ \__\
            \|__|  \|_______|\|_______|       |\_________\|__|\|__|\|__|\|__|
                                              \|_________|
+```
 
 TUD ship is a collection of computational tools from the numerical ship-hydrodynamics group of the TU Delft.
 All tools are build on top of MFEM.
@@ -21,6 +22,7 @@ All tools are build on top of MFEM.
 
 ## License
 
+```
                     Finite Element Discretization Library
                                    __
                        _ __ ___   / _|  ___  _ __ ___
@@ -29,6 +31,7 @@ All tools are build on top of MFEM.
                       |_| |_| |_||_|   \___||_| |_| |_|
 
                                https://mfem.org
+```
 
 MFEM is distributed under the terms of the BSD-3 license. All new contributions
 must be made under this license. See [LICENSE](LICENSE) and [NOTICE](NOTICE) for
