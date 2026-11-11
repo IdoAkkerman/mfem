@@ -166,7 +166,7 @@ int main(int argc, char *argv[])
    int num_procs = Mpi::WorldSize();
    int myid = Mpi::WorldRank();
    Hypre::Init();
-   printInfo();
+   printSerialInfo();
 
    // Parse command-line options.
    OptionsParser args(argc, argv);

@@ -20,20 +20,58 @@ void line(int len)
    std::cout<<"\n";
 }
 
+
 // Function for printing compile time and runtime information.
-void printInfo()
+void printHeader()
+{
+      // Print header
+      line(80);
+      std::cout<<R"(  _________  ___  ___  ________          ________  ___  ___  ___  ________    )"<<std::endl;
+      std::cout<<R"( |\___   ___\\  \|\  \|\   ___ \        |\   ____\|\  \|\  \|\  \|\   __  \   )"<<std::endl;
+      std::cout<<R"( \|___ \  \_\ \  \\\  \ \  \_|\ \       \ \  \___|\ \  \\\  \ \  \ \  \|\  \  )"<<std::endl;
+      std::cout<<R"(      \ \  \ \ \  \\\  \ \  \ \\ \       \ \_____  \ \   __  \ \  \ \   ____\ )"<<std::endl;
+      std::cout<<R"(       \ \  \ \ \  \\\  \ \  \_\\ \       \|____|\  \ \  \ \  \ \  \ \  \___| )"<<std::endl;
+      std::cout<<R"(        \ \__\ \ \_______\ \_______\        ____\_\  \ \__\ \__\ \__\ \__\    )"<<std::endl;
+      std::cout<<R"(         \|__|  \|_______|\|_______|       |\_________\|__|\|__|\|__|\|__|    )"<<std::endl;
+      std::cout<<R"(                                           \|_________|                       )"<<std::endl;
+      std::cout<<R"(                                                                              )"<<std::endl;
+}
+
+// Function for printing compile time and runtime information.
+void printSerialInfo()
+{
+      // Print header
+      printHeader();
+
+      // Build info
+      line(80);
+      std::cout<<"Compile time info\n";
+      line(80);
+      std::cout<< buildInfo.str() << std::endl;
+
+      // Run info
+      line(80);
+      std::cout<<"Run time info"<<std::endl;
+      line(80); std::cout<<std::endl;
+      time_t     now = time(0);
+      struct tm  tstruct = *localtime(&now);
+      char       time[80], host[80];
+      strftime(time, sizeof(time), "%Y-%m-%d.%X", &tstruct);
+      gethostname(host,sizeof(host));
+
+      std::cout<<"Time: "<<time<<std::endl;
+      std::cout<<"Host: "<<host<<std::endl;
+
+      std::cout<<std::endl; line(80); std::cout<<std::endl;
+}
+
+// Function for printing compile time and runtime information.
+void printParallelInfo()
 {
    if (Mpi::Root())
    {
       // Print header
-      line(80);
-      std::cout<<R"(    _____  ______      ____  __  _____  )"<<std::endl;
-      std::cout<<R"(   |  __ \|  _ \ \    / /  \/  |/ ____| )"<<std::endl;
-      std::cout<<R"(   | |__) | |_) \ \  / /| \  / | (___   )"<<std::endl;
-      std::cout<<R"(   |  _  /|  _ < \ \/ / | |\/| |\___ \  )"<<std::endl;
-      std::cout<<R"(   | | \ \| |_) | \  /  | |  | |____) | )"<<std::endl;
-      std::cout<<R"(   |_|  \_\____/   \/   |_|  |_|_____/  )"<<std::endl;
-      std::cout<<R"(                                        )"<<std::endl;
+      printHeader();
 
       // Build info
       line(80);

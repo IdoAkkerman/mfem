@@ -19,6 +19,8 @@ using namespace mfem;
 
 int main(int argc, char *argv[])
 {
+   printSerialInfo();
+
    // 2. Parse command-line options.
    OptionsParser args(argc, argv);
 

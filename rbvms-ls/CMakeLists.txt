@@ -15,6 +15,16 @@ add_mfem_miniapp(rbvms-ls
   EXTRA_HEADERS formulation.hpp integrator.hpp dist_solver.hpp solver.hpp ../tudship-util.hpp
   LIBRARIES mfem)
 
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/buildInfo.hpp"
+                   COMMAND /bin/bash "${PROJECT_SOURCE_DIR}/buildInfo.sh" "${PROJECT_BINARY_DIR}/buildInfo.hpp"
+                   COMMENT "Getting git info")
+
+add_custom_target(buildInfo
+    DEPENDS "${PROJECT_BINARY_DIR}/buildInfo.hpp"
+)
+
+add_dependencies(rbvms-tudship buildInfo)
+
 set(rbvms_ls_FILES
     README.md
     dambreak.geo
