@@ -922,7 +922,7 @@ endif()
 # TUD ship apps
 #-------------------------------------------------------------------------------
 add_subdirectory(rbvms)
-#add_subdirectory(rbvms-ls)
+add_subdirectory(rbvms-ls)
 #add_subdirectory(rbvms-fsi)
 #add_subdirectory(rbvms-ls-fsi)
 

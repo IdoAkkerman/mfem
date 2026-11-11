@@ -11,13 +11,13 @@
 
 
 
-add_mfem_miniapp(rbvms_
+add_mfem_miniapp(rbvms_tudship
   MAIN rbvms.cpp
   EXTRA_SOURCES integrator.cpp
   EXTRA_HEADERS integrator.hpp ../tudship-util.hpp
   LIBRARIES mfem)
 
-set_target_properties(rbvms_ PROPERTIES EXPORT_NAME rbvms)
+set_target_properties(rbvms_tudship PROPERTIES EXPORT_NAME rbvms)
 
 foreach(target liddriven kovasznay vonkarman)
    add_library(${target} SHARED ${target}.cpp)
@@ -25,28 +25,28 @@ foreach(target liddriven kovasznay vonkarman)
        ${PROJECT_SOURCE_DIR}
        ${PROJECT_BINARY_DIR}/config
    )
-   add_dependencies(rbvms ${target})
+   add_dependencies(rbvms_tudship ${target})
 endforeach()
 
-LIST(APPEND RBVMS_FILES
+LIST(APPEND rbvms_FILES
         README.md
         von-karman-nurbs.mesh
         von-karman-tri.geo)
-foreach(RBVMS_FILE ${RBVMS_FILES})
-   add_custom_command(TARGET rbvms_ POST_BUILD #OUTPUT ${RBVMS_FILE}
+foreach(rbvms_FILE ${rbvms_FILES})
+   add_custom_command(TARGET rbvms_tudship POST_BUILD #OUTPUT ${rbvms_FILE}
                       COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                      ${CMAKE_CURRENT_SOURCE_DIR}/${RBVMS_FILE} ${RBVMS_FILE}
-                      COMMENT "copy: ${RBVMS_FILE}")
+                      ${CMAKE_CURRENT_SOURCE_DIR}/${rbvms_FILE} ${rbvms_FILE}
+                      COMMENT "copy: ${rbvms_FILE}")
 endforeach()
 
 if (MFEM_ENABLE_TESTING)
    add_test(NAME rbvms-ldc
-         COMMAND  $<TARGET_FILE:rbvms_> 
+         COMMAND  $<TARGET_FILE:rbvms_tudship> 
                   --mesh ${PROJECT_BINARY_DIR}/data/square-nurbs.mesh --strong-bdr 1
                   --lib $<TARGET_FILE:liddriven> -rho 1 -mu 0.001
                   -r 1 -o 2 -s 21 -dt 0.01 -tf 0.1)
    add_test(NAME rbvms-vkvs
-         COMMAND  $<TARGET_FILE:rbvms_>
+         COMMAND  $<TARGET_FILE:rbvms_tudship>
                   --mesh von-karman-nurbs.mesh
                   --strong-bdr "1 2" --outflow-bdr 4 --weak-bdr 3
                   --lib $<TARGET_FILE:vonkarman> -rho 1 -mu 0.01
@@ -54,29 +54,29 @@ if (MFEM_ENABLE_TESTING)
 endif()
 
 if (MFEM_USE_MPI)
-  add_mfem_miniapp(prbvms_
+  add_mfem_miniapp(prbvms_tudship
     MAIN prbvms.cpp
     EXTRA_SOURCES integrator.cpp
     EXTRA_HEADERS integrator.hpp ../tudship-util.hpp
     LIBRARIES mfem)
 
-  set_target_properties(prbvms_ PROPERTIES EXPORT_NAME prbvms)
+  set_target_properties(prbvms_tudship PROPERTIES EXPORT_NAME prbvms)
 
   # Add the corresponding tests to the "test" target
   if (MFEM_ENABLE_TESTING)
-    add_test(NAME prbvms_ldc_np${MFEM_MPI_NP}
+    add_test(NAME prbvms_tudshipldc_np${MFEM_MPI_NP}
       COMMAND ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} ${MFEM_MPI_NP}
       ${MPIEXEC_PREFLAGS}
-      $<TARGET_FILE:prbvms_>
+      $<TARGET_FILE:prbvms_tudship>
                --mesh ${PROJECT_BINARY_DIR}/data/square-nurbs.mesh --strong-bdr 1
                --lib $<TARGET_FILE:liddriven>  -rho 1 -mu 0.001
                -o 2 -r 3 -s 21 -dt 0.01 -tf 0.1
       ${MPIEXEC_POSTFLAGS})
 
-    add_test(NAME prbvms_vkvs_np${MFEM_MPI_NP}
+    add_test(NAME prbvms_tudshipvkvs_np${MFEM_MPI_NP}
       COMMAND ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} ${MFEM_MPI_NP}
       ${MPIEXEC_PREFLAGS}
-      $<TARGET_FILE:prbvms_>
+      $<TARGET_FILE:prbvms_tudship>
                   --mesh von-karman-nurbs.mesh
                   --strong-bdr "1 2" --outflow-bdr 4 --weak-bdr 3 
                   --lib $<TARGET_FILE:vonkarman> -rho 1 -mu 0.01
