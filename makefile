@@ -811,8 +811,12 @@ FORMAT_FILES += $(foreach dir,$(TESTS_SUBDIRS),tests/$(dir)/*.?pp)
 FORMAT_FILES += $(foreach dir,$(UNIT_TESTS_SUBDIRS),tests/unit/$(dir)/*.?pp)
 FORMAT_FILES += tests/unit/fem/specializations/*.?pp
 FORMAT_FILES += $(foreach dir,$(MINIAPPS_SUBDIRS),miniapps/$(dir)/*.?pp)
-FORMAT_FILES += config/cmake/config.hpp.in config/config.hpp.in mfem*.hpp
-FORMAT_EXCLUDE = general/tinyxml2.cpp tests/unit/catch.hpp
+FORMAT_FILES += rbvms/*.?pp
+FORMAT_FILES += rbvms-ls/*.?pp
+#FORMAT_FILES += rbvms-fsi/*.?pp
+#FORMAT_FILES += rbvms-ls-fsi/*.?pp
+FORMAT_FILES += config/cmake/config.hpp.in config/config.hpp.in mfem*.hpp tudship-util.hpp
+FORMAT_EXCLUDE = general/tinyxml2.cpp tests/unit/catch.hpp buildInfo.hpp
 FORMAT_LIST = $(filter-out $(FORMAT_EXCLUDE),$(wildcard $(FORMAT_FILES)))
 
 COUT_CERR_FILES = $(foreach dir,$(DIRS),$(dir)/*.[ch]pp)
@@ -851,18 +855,22 @@ style:
 	@err_code=0; \
 	if command -v git 2>&1 > /dev/null && [ -d $(MFEM_DIR)/.git ]; then \
 	   echo "Checking if all git files are selected for formatting ..."; \
-	   ls -1 $(FORMAT_FILES) | sort > format-files-make.txt; \
+	   ls -1 $(FORMAT_FILES) | sort > format-include-make.txt; \
+	   ls -1 $(FORMAT_EXCLUDE) | sort > format-exclude-make.txt; \
+	   grep -F -v -x -f format-exclude-make.txt format-include-make.txt > format-files-make.txt; \
 	   git -C $(MFEM_DIR) ls-files '*.[ch]pp*' | sort \
 	      > format-files-git.txt; \
 	   cat format-files-make.txt format-files-git.txt | sort | uniq \
-	      > format-files-make-plus-git.txt; \
+	      > format-include-make-plus-git.txt; \
+	   grep -F -v -x -f format-exclude-make.txt format-include-make-plus-git.txt> format-files-make-plus-git.txt; \
 	   rm -f format-files-git.txt; \
 	   $(call mfem_check_command,\
 	      diff format-files-make.txt format-files-make-plus-git.txt | \
 	      grep "^> ",\
 	      "All git files are selected for formatting",\
 	      "The above git files are NOT selected for formatting"); \
-	   rm -f format-files-make.txt format-files-make-plus-git.txt; \
+	   rm -f format-files-make.txt format-files-make-plus-git.txt format-exclude-make.txt; \
+	   rm -r format-include-make-plus-git.txt format-include-make.txt; \
 	fi; \
 	echo "Applying C++ code style...";\
 	$(call mfem_check_command,\
