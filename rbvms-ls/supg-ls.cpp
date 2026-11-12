@@ -30,7 +30,7 @@ extern void line(int len);
 
 // Routine for checking duplicity of boundary conditions
 void CheckBoundaries2(Array<bool> &bnd_flags,
-                     Array<int> &bc_bnds)
+                      Array<int> &bc_bnds)
 {
    int amax = bnd_flags.Size();
    // Check strong boundaries
@@ -51,7 +51,7 @@ void CheckBoundaries2(Array<bool> &bnd_flags,
 
 // Routine for pretty printing boundary forces to screen
 void PrintForce2(const Array<int>& bdr_attributes,
-                const DenseMatrix& bdrForce)
+                 const DenseMatrix& bdrForce)
 {
    // Print line lambda function
    auto pline = [](int len)
@@ -402,7 +402,8 @@ int main(int argc, char *argv[])
 
    // Select the time integrator
    unique_ptr<ODESolver> ode_solver = ODESolver::Select(ode_solver_type);
-   ODESolverWithStates*  ode_solver_ws = dynamic_cast<ODESolverWithStates*>(ode_solver.get());
+   ODESolverWithStates*  ode_solver_ws = dynamic_cast<ODESolverWithStates*>
+                                         (ode_solver.get());
    int nstate = ode_solver->GetStateSize();
 
    if (nstate > 1 && ( restart || restart_interval > 0 ))

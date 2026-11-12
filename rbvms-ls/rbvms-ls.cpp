@@ -14,11 +14,8 @@
 //------------------------------------------------------------------------------
 #include <sys/stat.h>
 #include "mfem.hpp"
-//#include "../util/coefficients.hpp"
-#include "solver.hpp"
 
 #include "dist_solver.hpp"
-#include "formulation.hpp"
 #include "integrator.hpp"
 
 #include "tudship-util.hpp"
@@ -103,7 +100,7 @@ private:
 public:
    // Constructor
    OutputData(bool prt, int dim, Array<int>& bdr_attr_, int si)
-      : print(prt), bdr_attr(bdr_attr_)
+      :  bdr_attr(bdr_attr_),print(prt)
    {
       if (!print) { return; }
 
@@ -166,7 +163,7 @@ int main(int argc, char *argv[])
    int num_procs = Mpi::WorldSize();
    int myid = Mpi::WorldRank();
    Hypre::Init();
-   printSerialInfo();
+   printParallelInfo();
 
    // Parse command-line options.
    OptionsParser args(argc, argv);
@@ -335,6 +332,12 @@ int main(int argc, char *argv[])
    args.AddOption(&vis_dir, "-vd", "--vis-dir",
                   "Directory for visualization files.\n\t");
 
+
+   bool old = true;
+
+   args.AddOption(&old, "-old", "--old", "-n", "--new",
+                  "Restart from solution.");
+
    // Parse parameters
    args.Parse();
    if (!args.Good())
@@ -404,7 +407,8 @@ int main(int argc, char *argv[])
 
    // Select the time integrator
    unique_ptr<ODESolver> ode_solver = ODESolver::Select(ode_solver_type);
-   ODESolverWithStates*  ode_solver_ws = dynamic_cast<ODESolverWithStates*>(ode_solver.get());
+   ODESolverWithStates*  ode_solver_ws = dynamic_cast<ODESolverWithStates*>
+                                         (ode_solver.get());
    int nstate = ode_solver->GetStateSize();
 
    if (nstate > 1 && ( restart || restart_interval > 0 ))
@@ -605,7 +609,7 @@ int main(int argc, char *argv[])
    }
 
    // Set up the preconditioner
-   RBVMS::JacobianPreconditioner jac_prec(bOffsets);
+   JacobianPreconditioner jac_prec(bOffsets);
 
    Solver* pc_mom  = nullptr;
    Solver* pc_cont = nullptr;
@@ -632,7 +636,8 @@ int main(int argc, char *argv[])
    jac_prec.SetPreconditioner(2, pc_ls);
 
    // Set up the Jacobian solver
-   RBVMS::GeneralResidualMonitor j_monitor("\t\tFGMRES", 10);
+   int printInterval = Mpi::Root() ?  50 : -1;
+   GeneralResidualMonitor j_monitor("\t\tFGMRES", printInterval);
    FGMRESSolver gmres(MPI_COMM_WORLD);
    gmres.iterative_mode = false;
    gmres.SetRelTol(GMRES_RelTol);
@@ -642,12 +647,16 @@ int main(int argc, char *argv[])
    gmres.SetPreconditioner(jac_prec);
 
    // Set up the Newton solver
-   RBVMS::NewtonSystemSolver newton_solver(MPI_COMM_WORLD,bOffsets);
+   NewtonSystemSolver newton_solver(MPI_COMM_WORLD,bOffsets);
    newton_solver.iterative_mode = true;
    newton_solver.SetPrintLevel(1);
    newton_solver.SetRelTol(Newton_RelTol);
    newton_solver.SetMaxIter(Newton_MaxIter);
    newton_solver.SetSolver(gmres);
+
+
+
+
 
    // Define the physical parameters
    LibCoefficient rho(lib_file, "rho", false, rho_param);
@@ -658,24 +667,75 @@ int main(int argc, char *argv[])
    LibCoefficient suction(lib_file, "suction", false, 0.0);
    LibCoefficient blowing(lib_file, "blowing", false, 0.0);
 
+   ConstantCoefficient zero(0.0);
+
+
+   // Provide more usefull error!!
+   Array<int> strong_marker, normal_marker, weak_marker, outflow_marker;
+   bnd_flag = true;
+   for (int b = 0; b < pmesh.bdr_attributes.Size(); b++)
+   {
+      bnd_flag[pmesh.bdr_attributes[b]] = false;
+   }
+   CheckBoundaries(bnd_flag, strong_marker, strong_bdr);
+   CheckBoundaries(bnd_flag, weak_marker, weak_bdr, 2);
+   CheckBoundaries(bnd_flag, outflow_marker, outflow_bdr);
+   for (int b = 0; b < pmesh.bdr_attributes.Size(); b++)
+   {
+      bnd_flag[pmesh.bdr_attributes[b]] = false;
+   }
+   normal_bdr.Print();
+   // CheckBoundaries(bnd_flag, normal_marker, normal_bdr);
+   normal_marker.SetSize(1);
+   normal_marker = 1;
    // Define weak form and evolution
-   RBVMS::IncNavStoIntegrator integrator(rho, mu, force,
-                                         sol_u, sol_phi,
-                                         suction, blowing);
-   RBVMS::NavStoLSForm form(spaces, integrator);
-   RBVMS::Evolution2 evo(form, newton_solver);
+   ParBlockTimeDepNonlinearForm form(spaces);
+
+   strong_marker.Print();
+   outflow_marker.Print();
+   normal_marker.Print();
+
+   // using BTNL_Integrator = BlockTimeDepNonlinearFormIntegrator;
+   RBVMS::RBVMSIntegrator *interior_int = new RBVMS::RBVMSIntegrator(rho, mu,
+                                                                     force);
+
+   interior_int->SetInconsistentDC(NavSto_kdc0);
+   interior_int->SetConsistentDC(NavSto_kdc1);
+
+   //  BTNL_Integrator *outflow_int =new RBVMS::OutflowIntegrator(rho, mu, sol_u);
+   //  BTNL_Integrator *weak_int = new RBVMS::WeakBCIntegrator(rho, mu, sol_u, sol_phi);
+   RBVMS::WeakBCIntegrator *normal_int = new RBVMS::WeakBCIntegrator(rho, zero,
+                                                                     sol_u, sol_phi);
+   normal_int->SetWBCParams(0.0, 10000.0);
+
+   form.AddTimeDepDomainIntegrator(interior_int);
+   // form.AddTimeDepBdrFaceIntegrator(outflow_int, outflow_marker);
+   // form.AddTimeDepBdrFaceIntegrator(weak_int, weak_marker);
+   form.AddTimeDepBdrFaceIntegrator(normal_int, normal_marker);
+
+   // {
+   Array<int>  pressure_marker (pmesh.bdr_attributes.Max());
+   pressure_marker = 0;
+   Array<Array<int>*> marker(3);
+   marker[0] = &strong_marker;
+   marker[1] = &pressure_marker;
+   marker[2] = &pressure_marker;
+
+   Array<Vector*> rhs(3);
+   rhs = nullptr;
+
+   form.SetEssentialBC(marker,rhs);
+   //}
+
+   BlockEvolution evo(form, newton_solver);
    ode_solver->Init(evo);
 
-   // Set boundaries in the weakform
-   form.SetStrongBC (strong_bdr);
-   form.SetWeakBC   (weak_bdr);
-   form.SetNormalBC (normal_bdr);
-   form.SetOutflowBC(outflow_bdr);
-   form.SetSuctionBC(suction_bdr);
-   form.SetBlowingBC(blowing_bdr);
 
-   form.SetInconsistentDC(NavSto_kdc0);
-   form.SetConsistentDC(NavSto_kdc1);
+
+
+
+
+
 
    ConvectionDistanceSolver dist_solver(*spaces[2]);
    dist_solver.SetPenalty(Redist_Lambda);
@@ -699,7 +759,7 @@ int main(int argc, char *argv[])
    OutputData output(Mpi::Root(), pmesh.Dimension(), pmesh.bdr_attributes, si);
 
    // Loop till final time reached
-   form.maxGradCalls = -1;
+   //form2.maxGradCalls = -1;
    while (t < t_final)
    {
       // Print header
@@ -718,8 +778,9 @@ int main(int argc, char *argv[])
       // Actual time step
       xp0 = xp;
       evo.SetTime(t);
+      /// evo2.SetTime(t);
       ode_solver->Step(xp, t, dt);
-      form.maxGradCalls = 6;
+      //form2.maxGradCalls = 6;
 
       x_ref.Distribute(xp.GetBlock(2));
       x_phi = x_ref;
@@ -764,14 +825,14 @@ int main(int argc, char *argv[])
       }
 
       // Change time step
-      real_t dt0 = dt;
-      if (dt_gain > 0)
+      // real_t dt0 = dt;
+      /*if (dt_gain > 0)
       {
-         real_t cfl = form.GetCFL();
+         real_t cfl = form2.GetCFL();
          dt *= pow(cfl_target/cfl, dt_gain);
          dt = min(dt, dt_max);
          dt = max(dt, dt_min);
-      }
+      }*/
 
       // Write restart files
       if (restart_interval > 0 && si%restart_interval == 0)
@@ -813,29 +874,29 @@ int main(int argc, char *argv[])
       }
 
       // Postprocess solution
-      real_t cfl = form.GetCFL();
-      real_t outflow = form.GetOutflow();
-      Vector energy = form.GetEnergies(xp);
-      DenseMatrix bdrForce = form.GetForce();
+      /*  real_t cfl = form2.GetCFL();
+        real_t outflow = form2.GetOutflow();
+        Vector energy = form2.GetEnergies(xp);
+        DenseMatrix bdrForce = form2.GetForce();
 
-      // Write to file
-      output.Print(si, t, dt, cfl, outflow, energy, bdrForce);
+        // Write to file
+        output.Print(si, t, dt, cfl, outflow, energy, bdrForce);
 
-      // Write to screen
-      if (Mpi::Root())
-      {
-         PrintForce(pmesh.bdr_attributes,bdrForce);
-         cout<<endl;
-         line(80);
-         cout<<" Kinetic Energy      = "<<energy[0]<<endl;
-         cout<<" Potential Energy    = "<<energy[1]<<endl;
-         cout<<" Viscous Dissipation = "<<energy[2]<<endl;
-         cout<<" Mass Outflow Rate   = "<<outflow<<endl;
-         cout<<" CFL-Number          = "<<cfl<<endl;
-         if (dt_gain > 0) { cout<<" dt  = "<<dt0<<" --> "<<dt<<endl; }
-         line(80);
-         cout<<endl<<endl<<std::flush;
-      }
+        // Write to screen
+        if (Mpi::Root())
+        {
+           PrintForce(pmesh.bdr_attributes,bdrForce);
+           cout<<endl;
+           line(80);
+           cout<<" Kinetic Energy      = "<<energy[0]<<endl;
+           cout<<" Potential Energy    = "<<energy[1]<<endl;
+           cout<<" Viscous Dissipation = "<<energy[2]<<endl;
+           cout<<" Mass Outflow Rate   = "<<outflow<<endl;
+           cout<<" CFL-Number          = "<<cfl<<endl;
+           if (dt_gain > 0) { cout<<" dt  = "<<dt0<<" --> "<<dt<<endl; }
+           line(80);
+           cout<<endl<<endl<<std::flush;
+        }*/
    }
 
 

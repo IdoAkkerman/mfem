@@ -223,3 +223,189 @@ public:
 
 };
 
+
+/// Newton's method for solving F(x)=b for a given operator F.
+/** The method GetGradient() must be implemented for the operator F.
+    The preconditioner is used (in non-iterative mode) to evaluate
+    the action of the inverse gradient of the operator. */
+class NewtonSystemSolver : public NewtonSolver
+{
+private:
+   Array<int> &bOffsets;
+   int nvar;
+
+   // Compute the norms for each component
+   void Norms(const Vector &r,Vector& lnorm) const
+   {
+      lnorm.SetSize(nvar);
+      for (int i = 0; i < nvar; ++i)
+      {
+         Vector r_i(r.GetData() + bOffsets[i], bOffsets[i+1] - bOffsets[i]);
+#ifdef MFEM_USE_MPI
+         if (parallel)
+         {
+            lnorm[i] = sqrt(InnerProduct(MPI_COMM_WORLD, r_i, r_i));
+         }
+         else
+#endif
+         {
+            lnorm[i] = sqrt(r_i*r_i);
+         }
+         MFEM_VERIFY(IsFinite(lnorm[i]), "norm[" << i << "] = " << lnorm[i]);
+      }
+   }
+
+   bool parallel = false;
+
+public:
+   // Constructor, provide MPI context and component subdivision
+   NewtonSystemSolver( Array<int> &offsets)
+      : bOffsets(offsets)
+   {
+      nvar = bOffsets.Size()-1;
+      parallel = false;
+
+   }
+#ifdef MFEM_USE_MPI
+   NewtonSystemSolver(MPI_Comm comm_, Array<int> &offsets)
+      : NewtonSolver(comm_), bOffsets(offsets)
+   {
+      nvar = bOffsets.Size()-1;
+      parallel = true;
+   }
+#endif
+   /// Solve the nonlinear system with right-hand side @a b.
+   /** If `b.Size() != Height()`, then @a b is assumed to be zero. */
+   virtual void Mult(const Vector &b, Vector &x) const
+   {
+      MFEM_VERIFY(oper != NULL, "the Operator is not set (use SetOperator).");
+      MFEM_VERIFY(prec != NULL, "the Solver is not set (use SetSolver).");
+
+      int it = 0;
+      Vector norm0(nvar), norm(nvar), norm_goal(nvar);
+      const bool have_b = (b.Size() == Height());
+
+      if (!iterative_mode)
+      {
+         x = 0.0;
+      }
+
+      ProcessNewState(x);
+
+      oper->Mult(x, r);
+      if (have_b)
+      {
+         r -= b;
+      }
+
+      //   initial_norm
+      Norms(r, norm0);
+      norm = norm0;
+
+      if (print_options.first_and_last && !print_options.iterations)
+      {
+         mfem::out << "Newton iteration " << std::setw(3) << it <<"\n"
+                   << " ||r||\n";
+         for (int i = 0; i < nvar; ++i)
+         {
+            mfem::out<<std::setw(8)<<std::defaultfloat<<std::setprecision(4)
+                     <<norm0[i]<<" %\n";
+         }
+      }
+
+      for (int i = 0; i < nvar; ++i)
+      {
+         norm_goal[i] = std::max(rel_tol*norm0[i], abs_tol);
+      }
+      prec->iterative_mode = false;
+
+      // x_{i+1} = x_i - [DF(x_i)]^{-1} [F(x_i)-b]
+      for (it = 0; true; it++)
+      {
+         if (print_options.iterations)
+         {
+            mfem::out << "Newton iteration " << std::setw(3) << it <<"\n"
+                      << " ||r||  \t"<< "||r||/||r_0||\n";
+            for (int i = 0; i < nvar; ++i)
+            {
+               mfem::out<<std::setw(8)<<std::defaultfloat<<std::setprecision(4)
+                        <<norm[i]<<"\t"
+                        <<std::setw(8)<<std::fixed<<std::setprecision(2)
+                        <<100*norm[i]/norm0[i]<<" %\n";
+            }
+         }
+         Monitor(it, -1.0, r, x);
+         converged = true;
+         for (int i = 0; i < nvar; ++i)
+         {
+            if (norm[i] > norm_goal[i])
+            {
+               converged = false;
+            }
+         }
+         if (converged) { break; }
+
+         if (it >= max_iter)
+         {
+            converged = false;
+            break;
+         }
+
+         grad = &oper->GetGradient(x);
+         prec->SetOperator(*grad);
+
+         if (lin_rtol_type)
+         {
+            AdaptiveLinRtolPreSolve(x, it, norm.Norml2());
+         }
+
+         prec->Mult(r, c); // c = [DF(x_i)]^{-1} [F(x_i)-b]
+
+         if (lin_rtol_type)
+         {
+            AdaptiveLinRtolPostSolve(c, r, it, norm.Norml2());
+         }
+
+         const real_t c_scale = ComputeScalingFactor(x, b);
+         if (c_scale == 0.0)
+         {
+            converged = false;
+            break;
+         }
+         add(x, -c_scale, c, x);
+
+         ProcessNewState(x);
+
+         oper->Mult(x, r);
+         if (have_b)
+         {
+            r -= b;
+         }
+
+         Norms(r, norm);
+      }
+
+      final_iter = it;
+      final_norm = norm.Norml2();
+
+      if (print_options.summary || (!converged && print_options.warnings) ||
+          print_options.first_and_last)
+      {
+         mfem::out << "Newton iteration " << std::setw(3) << it <<"\n"
+                   << " ||r||  \t"<< "||r||/||r_0||\n";
+         for (int i = 0; i < nvar; ++i)
+         {
+            mfem::out<<std::setw(8)<<std::defaultfloat<<std::setprecision(4)
+                     <<norm[i]<<"\t"
+                     <<std::setw(8)<<std::fixed<<std::setprecision(2)
+                     <<100*norm[i]/norm0[i]<<" %\n";
+         }
+      }
+      if (!converged && (print_options.summary || print_options.warnings))
+      {
+         mfem::out << "Newton: No convergence!\n";
+      }
+   }
+
+};
+

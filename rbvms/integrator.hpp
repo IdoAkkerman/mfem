@@ -238,42 +238,4 @@ public:
                          const Array2D<DenseMatrix *> &elmats) override;
 };
 
-/// Newton's method for solving F(x)=b for a given operator F.
-/** The method GetGradient() must be implemented for the operator F.
-    The preconditioner is used (in non-iterative mode) to evaluate
-    the action of the inverse gradient of the operator. */
-class NewtonSystemSolver : public NewtonSolver
-{
-private:
-   Array<int> &bOffsets;
-   int nvar;
-
-   // Compute the norms for each component
-   void Norms(const Vector &r,Vector& norm) const;
-
-   bool parallel = false;
-
-public:
-   // Constructor, provide MPI context and component subdivision
-   NewtonSystemSolver( Array<int> &offsets)
-      : bOffsets(offsets)
-   {
-      nvar = bOffsets.Size()-1;
-      parallel = false;
-
-   }
-#ifdef MFEM_USE_MPI
-   NewtonSystemSolver(MPI_Comm comm_, Array<int> &offsets)
-      : NewtonSolver(comm_), bOffsets(offsets)
-   {
-      nvar = bOffsets.Size()-1;
-      parallel = true;
-   }
-#endif
-   /// Solve the nonlinear system with right-hand side @a b.
-   /** If `b.Size() != Height()`, then @a b is assumed to be zero. */
-   virtual void Mult(const Vector &b, Vector &x) const;
-};
-
-
 #endif

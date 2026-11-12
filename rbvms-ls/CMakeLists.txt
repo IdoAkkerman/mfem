@@ -11,8 +11,8 @@
 
 add_mfem_miniapp(rbvms-ls
   MAIN rbvms-ls.cpp
-  EXTRA_SOURCES formulation.cpp integrator.cpp dist_solver.cpp solver.cpp
-  EXTRA_HEADERS formulation.hpp integrator.hpp dist_solver.hpp solver.hpp ../tudship-util.hpp
+  EXTRA_SOURCES integrator.cpp dist_solver.cpp
+  EXTRA_HEADERS integrator.hpp dist_solver.hpp ../tudship-util.hpp
   LIBRARIES mfem)
 
 add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/buildInfo.hpp"
