@@ -62,6 +62,7 @@ set(UNIT_TESTS_SRCS
   linalg/test_hypre_ilu.cpp
   linalg/test_hypre_prec.cpp
   linalg/test_hypre_vector.cpp
+  linalg/test_kron.cpp
   linalg/test_ilu.cpp
   linalg/test_matrix_block.cpp
   linalg/test_matrix_dense.cpp
