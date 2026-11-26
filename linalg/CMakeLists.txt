@@ -23,9 +23,12 @@ list(APPEND SRCS
   complex_operator.cpp
   constraints.cpp
   densemat.cpp
+  densemat_gen_eigensystem.cpp
   bandmatrix.cpp
+  fast_diagonalization.cpp
   filteredsolver.cpp
   handle.cpp
+  kronecker_preconditioner.cpp
   matrix.cpp
   mma.cpp
   multivector.cpp
@@ -54,12 +57,16 @@ list(APPEND HDRS
   complex_operator.hpp
   constraints.hpp
   densemat.hpp
+  densemat_gen_eigensystem.hpp
   bandmatrix.hpp
   dinvariants.hpp
   dtensor.hpp
   dual.hpp
+  fast_diagonalization.hpp
   filteredsolver.hpp
   handle.hpp
+  kronecker.hpp
+  kronecker_preconditioner.hpp
   invariants.hpp
   kernels.hpp
   lapack.hpp

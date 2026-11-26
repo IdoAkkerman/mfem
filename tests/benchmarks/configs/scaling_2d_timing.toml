@@ -1,0 +1,32 @@
+[experiment]
+name = "scaling_2d_timing"
+executable = "build/miniapps/nurbs/nurbs_kronecker"
+working_dir = "build/miniapps/nurbs"
+output_root = "tests/benchmarks/results"
+timeout_sec = 180
+openblas_threads = 1
+omp_threads = 1
+
+[meshes]
+square_affine = "../../../data/square-nurbs.mesh"
+square_dist = "meshes/square-nurbs-distorted.mesh"
+
+[defaults]
+problem = "const-1"
+assembly = "legacy"
+rtol = 1e-10
+atol = 0.0
+max_iter = 5000
+gmres_restart = 50
+repeats = 5
+verify = false
+record_residuals = false
+
+[[sweeps]]
+name = "2d_k_scaling_timing"
+mesh = ["square_affine", "square_dist"]
+ref_strategy = ["k"]
+order = [2, 3, 4, 5]
+ref_levels = [3, 4, 5, 6]
+solver = ["cg"]
+prec = ["none", "jacobi", "gs", "kronecker-fd"]

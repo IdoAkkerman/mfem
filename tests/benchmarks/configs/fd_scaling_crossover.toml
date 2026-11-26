@@ -1,0 +1,61 @@
+[experiment]
+name = "fd_scaling_crossover"
+executable = "build/miniapps/nurbs/nurbs_kronecker"
+working_dir = "build/miniapps/nurbs"
+output_root = "tests/benchmarks/results"
+timeout_sec = 180
+openblas_threads = 1
+omp_threads = 1
+
+[meshes]
+square_affine = "../../../data/square-nurbs.mesh"
+square_dist = "meshes/square-nurbs-distorted.mesh"
+cube_affine = "../../../data/cube-nurbs.mesh"
+
+[defaults]
+problem = "const-1"
+assembly = "legacy"
+rtol = 1e-10
+atol = 0.0
+max_iter = 10000
+gmres_restart = 50
+repeats = 3
+verify = false
+record_residuals = false
+
+# Sweep 1: 2D high-p sweep (exposes exponential-in-p blowup of none/jacobi/gs)
+[[sweeps]]
+name = "2d_high_p"
+mesh = ["square_affine", "square_dist"]
+ref_strategy = ["k"]
+order = [3, 5, 6, 7]
+ref_levels = [4, 5]
+solver = ["cg"]
+prec = ["none", "jacobi", "gs", "kronecker-fd"]
+
+# Sweep 2: 3D sweep (matvec nnz/row scales as (2p+1)^3; FD apply is O(N^(4/3)))
+[[sweeps]]
+name = "3d_scaling"
+mesh = ["cube_affine"]
+ref_strategy = ["k"]
+order = [2, 3, 4, 5]
+ref_levels = [2, 3, 4]
+solver = ["cg"]
+prec = ["none", "jacobi", "gs", "kronecker-fd"]
+
+# Keep LEGACY 3D O(N*p^9) assembly fast and within RAM
+# [[sweeps.exclude]]
+# order = 3
+# ref_levels = 4
+#
+# [[sweeps.exclude]]
+# order = 4
+# ref_levels = 4
+#
+# [[sweeps.exclude]]
+# order = 5
+# ref_levels = 3
+#
+# [[sweeps.exclude]]
+# order = 5
+# ref_levels = 4

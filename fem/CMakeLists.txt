@@ -187,6 +187,7 @@ set(SRCS
   integrator.cpp
   bounds.cpp
   particleset.cpp
+  univariate_assembly.cpp
   )
 
 set(HDRS
@@ -326,6 +327,7 @@ set(HDRS
   integrator.hpp
   bounds.hpp
   particleset.hpp
+  univariate_assembly.hpp
   )
 
 if (MFEM_USE_CONDUIT)

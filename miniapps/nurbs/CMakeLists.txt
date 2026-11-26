@@ -82,6 +82,11 @@ add_mfem_miniapp(nurbs_stokes
   MAIN nurbs_stokes.cpp
   LIBRARIES mfem)
 
+add_mfem_miniapp(nurbs_kronecker
+  MAIN nurbs_kronecker.cpp
+  LIBRARIES mfem)
+  add_dependencies(nurbs_kronecker copy_miniapps_nurbs_data)
+
 if (MFEM_ENABLE_TESTING)
   add_test(NAME nurbs_ex1_1d_r1_o2_ser
     COMMAND $<TARGET_FILE:nurbs_ex1> -no-vis

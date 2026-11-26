@@ -509,3 +509,6 @@ TAGS
 
 # vs code
 .vscode
+
+# Python
+tests/benchmarks/__pycache__
