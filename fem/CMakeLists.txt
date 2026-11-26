@@ -188,6 +188,8 @@ set(SRCS
   bounds.cpp
   particleset.cpp
   univariate_assembly.cpp
+  weighted_quadrature_1d.cpp
+  weighted_quadrature_assemble.cpp
   )
 
 set(HDRS
@@ -328,6 +330,7 @@ set(HDRS
   bounds.hpp
   particleset.hpp
   univariate_assembly.hpp
+  weighted_quadrature.hpp
   )
 
 if (MFEM_USE_CONDUIT)

@@ -10,6 +10,7 @@
 // CONTRIBUTING.md for details.
 
 #include "fem/univariate_assembly.hpp"
+#include "fem/weighted_quadrature.hpp"
 #include "linalg/densemat_gen_eigensystem.hpp"
 #include "linalg/fast_diagonalization.hpp"
 #include "linalg/kronecker_preconditioner.hpp"
@@ -181,6 +182,8 @@ int main(int argc, char *argv[]) {
   int requested_order = -1;
   int ref_levels = 0;
   const char *assembly_arg = "legacy";
+  bool wq_symmetrize = true;
+  int wq_interior_pts = 2;
   const char *solver_arg = "cg";
   const char *prec_arg = "kronecker-fd";
   real_t rtol = 1e-10;
@@ -206,7 +209,12 @@ int main(int argc, char *argv[]) {
   args.AddOption(&ref_levels, "-r", "--ref-levels",
                  "Number of uniform h-refinement levels.");
   args.AddOption(&assembly_arg, "-asm", "--assembly",
-                 "BilinearForm assembly level (only 'legacy' supported).");
+                 "Operator assembly method: 'legacy' or 'wq'.");
+  args.AddOption(&wq_symmetrize, "-wq-sym", "--wq-symmetrize", "-no-wq-sym",
+                 "--no-wq-symmetrize",
+                 "Symmetrize Weighted Quadrature matrix (default: true).");
+  args.AddOption(&wq_interior_pts, "-wq-pts", "--wq-interior-pts",
+                 "Interior quadrature points per knot span for WQ (>= 2).");
   args.AddOption(&solver_arg, "-sol", "--solver",
                  "Krylov solver: 'cg', 'gmres', or 'minres'.");
   args.AddOption(&prec_arg, "-prec", "--prec",
@@ -259,11 +267,12 @@ int main(int argc, char *argv[]) {
                   << ref_strategy << "'. Expected 'k', 'p', or 'h'.");
   MFEM_VERIFY(ref_levels >= 0,
               "Invalid --ref-levels " << ref_levels << ". Must be >= 0.");
-  MFEM_VERIFY(assembly == "legacy",
-              "Unsupported --assembly '"
-                  << assembly
-                  << "'. Only 'legacy' is supported for NURBS meshes "
-                  << "(AssemblyLevel::PARTIAL downgrades NURBS meshes).");
+  MFEM_VERIFY(assembly == "legacy" || assembly == "wq",
+              "Unsupported --assembly '" << assembly
+                                         << "'. Expected 'legacy' or 'wq'.");
+  MFEM_VERIFY(wq_interior_pts >= 2, "Invalid --wq-interior-pts "
+                                        << wq_interior_pts
+                                        << ". Must be >= 2.");
   MFEM_VERIFY(solver_name == "cg" || solver_name == "gmres" ||
                   solver_name == "minres",
               "Unsupported --solver '"
@@ -279,6 +288,14 @@ int main(int argc, char *argv[]) {
               "Invalid --gmres-restart " << gmres_restart << ". Must be > 0.");
   MFEM_VERIFY(repeats >= 1,
               "Invalid --repeats " << repeats << ". Must be >= 1.");
+
+  if (assembly == "wq" && !wq_symmetrize &&
+      (solver_name == "cg" || solver_name == "minres")) {
+    MFEM_WARNING("Unsymmetrized Weighted Quadrature (--no-wq-symmetrize) "
+                 "produces a slightly nonsymmetric matrix; solver '"
+                 << solver_name
+                 << "' may lose orthogonality or fail to converge.");
+  }
 
   // 1. Load NURBS mesh.
   const Clock::time_point t_mesh_start = Clock::now();
@@ -364,19 +381,46 @@ int main(int argc, char *argv[]) {
   const Clock::time_point t_rhs_end = Clock::now();
   const double t_rhs_assembly = ElapsedSec(t_rhs_start, t_rhs_end);
 
-  // 5. Operator assembly (LEGACY only) + FormLinearSystem.
-  const Clock::time_point t_op_start = Clock::now();
-  BilinearForm a(&fespace);
-  a.SetAssemblyLevel(AssemblyLevel::LEGACY);
-  a.AddDomainIntegrator(new DiffusionIntegrator(one));
-  a.Assemble();
-
+  // 5. Operator assembly + linear system formation (legacy or WQ).
+  std::unique_ptr<BilinearForm> a;
   GridFunction x(&fespace);
-  x = 0.0;
-
   OperatorPtr A;
   Vector B, X;
-  a.FormLinearSystem(ess_tdof_list, x, b, A, X, B);
+
+  double t_op_wq_rules_1d = 0.0;
+  double t_op_wq_weights_1d = 0.0;
+  double t_op_wq_metric_eval = 0.0;
+  double t_op_wq_patch_assemble = 0.0;
+  double t_op_wq_symmetrize = 0.0;
+  double t_op_wq_bc_elim = 0.0;
+
+  const Clock::time_point t_op_start = Clock::now();
+  x = 0.0;
+  if (assembly == "legacy") {
+    a = std::make_unique<BilinearForm>(&fespace);
+    a->SetAssemblyLevel(AssemblyLevel::LEGACY);
+    a->AddDomainIntegrator(new DiffusionIntegrator(one));
+    a->Assemble();
+    a->FormLinearSystem(ess_tdof_list, x, b, A, X, B);
+  } else // assembly == "wq"
+  {
+    WQOptions wq_opts;
+    wq_opts.symmetrize = wq_symmetrize;
+    wq_opts.interior_pts_per_span = wq_interior_pts;
+    WQTimings wq_timings{};
+
+    SparseMatrix *A_wq = new SparseMatrix();
+    AssembleDiffusionWQ(fespace, one, ess_tdof_list, x, b, *A_wq, X, B, wq_opts,
+                        &wq_timings);
+    A.Reset(A_wq, true);
+
+    t_op_wq_rules_1d = wq_timings.rules_1d;
+    t_op_wq_weights_1d = wq_timings.weights_1d;
+    t_op_wq_metric_eval = wq_timings.metric_eval;
+    t_op_wq_patch_assemble = wq_timings.patch_assemble;
+    t_op_wq_symmetrize = wq_timings.symmetrize;
+    t_op_wq_bc_elim = wq_timings.bc_elim;
+  }
   const Clock::time_point t_op_end = Clock::now();
   const double t_operator_assembly = ElapsedSec(t_op_start, t_op_end);
 
@@ -486,7 +530,12 @@ int main(int argc, char *argv[]) {
     solve_repeats.push_back(ElapsedSec(ts0, ts1));
   }
 
-  a.RecoverFEMSolution(X, b, x);
+  if (assembly == "legacy") {
+    a->RecoverFEMSolution(X, b, x);
+  } else // assembly == "wq"
+  {
+    x.SetFromTrueDofs(X);
+  }
 
   const bool converged = static_cast<bool>(solver->GetConverged());
   const int iterations = solver->GetNumIterations();
@@ -571,6 +620,8 @@ int main(int argc, char *argv[]) {
         << "    \"order\": " << final_order << ",\n"
         << "    \"ref_levels\": " << ref_levels << ",\n"
         << "    \"assembly\": " << JsonString(assembly) << ",\n"
+        << "    \"wq_symmetrize\": " << JsonBool(wq_symmetrize) << ",\n"
+        << "    \"wq_interior_pts\": " << wq_interior_pts << ",\n"
         << "    \"solver\": " << JsonString(solver_name) << ",\n"
         << "    \"prec\": " << JsonString(prec_name) << ",\n"
         << "    \"rtol\": " << JsonNumber(static_cast<double>(rtol)) << ",\n"
@@ -599,6 +650,16 @@ int main(int argc, char *argv[]) {
         << "    \"fespace_setup\": " << JsonNumber(t_fespace_setup) << ",\n"
         << "    \"operator_assembly\": " << JsonNumber(t_operator_assembly)
         << ",\n"
+        << "    \"op_wq_rules_1d\": " << JsonNumber(t_op_wq_rules_1d) << ",\n"
+        << "    \"op_wq_weights_1d\": " << JsonNumber(t_op_wq_weights_1d)
+        << ",\n"
+        << "    \"op_wq_metric_eval\": " << JsonNumber(t_op_wq_metric_eval)
+        << ",\n"
+        << "    \"op_wq_patch_assemble\": "
+        << JsonNumber(t_op_wq_patch_assemble) << ",\n"
+        << "    \"op_wq_symmetrize\": " << JsonNumber(t_op_wq_symmetrize)
+        << ",\n"
+        << "    \"op_wq_bc_elim\": " << JsonNumber(t_op_wq_bc_elim) << ",\n"
         << "    \"rhs_assembly\": " << JsonNumber(t_rhs_assembly) << ",\n"
         << "    \"prec_setup_total\": " << JsonNumber(t_prec_setup_total)
         << ",\n"

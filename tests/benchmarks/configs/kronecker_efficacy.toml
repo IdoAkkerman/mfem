@@ -1,0 +1,152 @@
+[experiment]
+name = "kronecker_simple"
+executable = "build/miniapps/nurbs/nurbs_kronecker"
+working_dir = "build/miniapps/nurbs"
+output_root = "tests/benchmarks/results"
+timeout_sec = 15
+openblas_threads = 1
+omp_threads = 1
+
+[meshes]
+square_affine = "../../../data/square-nurbs.mesh"
+square_dist   = "meshes/square-nurbs-distorted.mesh"
+cube_affine   = "../../../data/cube-nurbs.mesh"
+
+[defaults]
+problem = "const-1"
+assembly = "wq"
+solver = "cg"
+rtol = 1e-10
+atol = 0.0
+max_iter = 10000
+gmres_restart = 50
+repeats = 1
+verify = false
+record_residuals = true
+
+# =============================================================================
+# SWEEPS (168 runs total, no exclusions — 15s timeout bounds slow configs)
+# =============================================================================
+
+# 1. 2D Affine vs. Distorted under k-refinement (2 * 3 * 5 * 4 = 120 runs)
+[[sweeps]]
+name = "2d_k_sweep"
+mesh = ["square_affine", "square_dist"]
+ref_strategy = ["k"]
+order = [2, 4, 6]
+ref_levels = [4, 5, 6, 7, 8]
+prec = ["none", "jacobi", "gs", "kronecker-fd"]
+
+# 2. 3D Affine Cube under k-refinement (1 * 3 * 4 * 4 = 48 runs)
+[[sweeps]]
+name = "3d_k_sweep"
+mesh = ["cube_affine"]
+ref_strategy = ["k"]
+order = [2, 3, 4]
+ref_levels = [2, 3, 4, 5]
+prec = ["none", "jacobi", "gs", "kronecker-fd"]
+
+# =============================================================================
+# SPARSE TABLES (shows TIMEOUT / NC cleanly and bolds the fastest per group)
+# =============================================================================
+
+[[plots]]
+name = "table_2d_summary"
+kind = "table"
+title = "2D k-Refinement (WQ): Iterations & Solve Time"
+filter = { mesh_name = ["square_affine", "square_dist"] }
+row_axes = ["mesh_name", "ref_levels", "prec"]
+row_group_axes = ["mesh_name", "ref_levels"]
+col_axis = "order"
+col_header_prefix = "p="
+value = "iterations"
+secondary_value = "solve"
+value_fmt = "iters_and_time"
+highlight_best = "min"
+
+[[plots]]
+name = "table_3d_summary"
+kind = "table"
+title = "3D Affine Cube (WQ): Iterations & Solve Time"
+filter = { mesh_name = "cube_affine" }
+row_axes = ["ref_levels", "prec"]
+row_group_axes = ["ref_levels"]
+col_axis = "order"
+col_header_prefix = "p="
+value = "iterations"
+secondary_value = "solve"
+value_fmt = "iters_and_time"
+highlight_best = "min"
+
+# =============================================================================
+# PLOTS
+# =============================================================================
+
+# 1. p-Robustness: Iterations vs. Order p at r = 5 (affine vs. distorted)
+[[plots]]
+name = "iters_vs_order_2d"
+kind = "line"
+title = "2D p-Robustness (k-Refinement, r = 5)"
+filter = { mesh_name = ["square_affine", "square_dist"], ref_levels = 5 }
+x = "order"
+y = "iterations"
+hue = "prec"
+facet_col = "mesh_name"
+yscale = "log"
+xticks_from_data = true
+hollow_non_converged = true
+xlabel = "Polynomial order p"
+ylabel = "CG iterations"
+
+# 2. 2D Distorted Solve Scaling (log-log with O(N) reference slope)
+[[plots]]
+name = "solve_time_vs_dofs_2d_dist"
+kind = "line"
+title = "2D Distorted Geometry: Solve Time vs. Free DoFs"
+filter = { mesh_name = "square_dist" }
+x = "num_free_dofs"
+y = "solve"
+hue = "prec"
+facet_col = "order"
+xscale = "log"
+yscale = "log"
+reference_slopes = [1.0]
+xlabel = "Free DoFs"
+ylabel = "Solve time (s)"
+
+# 3. 3D Cube Solve Scaling (log-log with O(N) reference slope)
+[[plots]]
+name = "solve_time_vs_dofs_3d"
+kind = "line"
+title = "3D Affine Cube: Solve Time vs. Free DoFs"
+filter = { mesh_name = "cube_affine" }
+x = "num_free_dofs"
+y = "solve"
+hue = "prec"
+facet_col = "order"
+xscale = "log"
+yscale = "log"
+reference_slopes = [1.0]
+xlabel = "Free DoFs"
+ylabel = "Solve time (s)"
+
+# 4. Normalized 100% Timing Breakdown — 2D Distorted
+[[plots]]
+name = "timing_breakdown_2d_dist"
+kind = "stacked"
+title = "2D Distorted: Normalized Pipeline Time Breakdown"
+filter = { mesh_name = "square_dist", order = [4, 6], ref_levels = [4, 5, 6, 7] }
+x = "ref_levels"
+series = ["prec"]
+split_by = ["order"]
+normalize = true
+annotate_dofs = true
+
+# 5. Residual Convergence — Affine vs. Distorted (p = 4, r = 5)
+[[plots]]
+name = "convergence_2d_p4_r5"
+kind = "convergence"
+title = "Residual Convergence — 2D k-Refinement (p = 4, r = 5)"
+filter = { mesh_name = ["square_affine", "square_dist"], order = 4, ref_levels = 5 }
+hue = "prec"
+split_by = ["mesh_name"]

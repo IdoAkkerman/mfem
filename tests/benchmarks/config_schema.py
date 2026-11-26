@@ -1,14 +1,12 @@
-"""Configuration schema, validator, Cartesian sweep expander, deterministic run-ID
-generator, and CLI command builder for MFEM NURBS Kronecker benchmarks.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
 import itertools
 import json
+import math
 from pathlib import Path
+import re
 from typing import Any
 
 try:
@@ -17,11 +15,13 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback
     import tomli as tomllib  # type: ignore[no-redef]
 
 
+ScalarValue = str | int | float | bool
+
 ALLOWED_TOP_LEVEL_KEYS: frozenset[str] = frozenset(
-    {"experiment", "meshes", "defaults", "sweeps", "cases"}
+    {"experiment", "meshes", "defaults", "sweeps", "cases", "plots"}
 )
 
-EXPERIMENT_REQUIRED_KEYS: frozenset[str] = frozenset(
+REQUIRED_EXPERIMENT_KEYS: frozenset[str] = frozenset(
     {
         "name",
         "executable",
@@ -33,15 +33,11 @@ EXPERIMENT_REQUIRED_KEYS: frozenset[str] = frozenset(
     }
 )
 
-ALLOWED_ENUMS: dict[str, frozenset[str]] = {
-    "problem": frozenset({"const-1"}),
-    "ref_strategy": frozenset({"k", "h", "p"}),
-    "assembly": frozenset({"legacy"}),
-    "solver": frozenset({"cg", "gmres", "minres"}),
-    "prec": frozenset({"none", "jacobi", "gs", "kronecker-fd"}),
-}
+RESERVED_PARAM_KEYS: frozenset[str] = frozenset(
+    {"out_file", "run_id", "quiet", "sweep_name"}
+)
 
-RUN_PARAM_ORDER: tuple[str, ...] = (
+COMMON_KEY_ORDER: tuple[str, ...] = (
     "mesh_name",
     "problem",
     "ref_strategy",
@@ -50,21 +46,11 @@ RUN_PARAM_ORDER: tuple[str, ...] = (
     "assembly",
     "solver",
     "prec",
-    "rtol",
-    "atol",
-    "max_iter",
-    "gmres_restart",
-    "repeats",
-    "verify",
-    "record_residuals",
 )
 
-REQUIRED_RUN_PARAM_KEYS: frozenset[str] = frozenset(RUN_PARAM_ORDER)
-ALLOWED_TOML_PARAM_KEYS: frozenset[str] = REQUIRED_RUN_PARAM_KEYS | frozenset({"mesh"})
-
-RUN_ID_KEYS: tuple[str, ...] = (
-    "mesh_name",
+SWEEP_AXIS_PRIORITY: tuple[str, ...] = (
     "mesh",
+    "mesh_name",
     "problem",
     "ref_strategy",
     "order",
@@ -72,11 +58,21 @@ RUN_ID_KEYS: tuple[str, ...] = (
     "assembly",
     "solver",
     "prec",
-    "rtol",
-    "atol",
-    "max_iter",
-    "gmres_restart",
 )
+
+RUN_ID_PREFIX_KEYS: tuple[str, ...] = (
+    "mesh_name",
+    "ref_strategy",
+    "ref_levels",
+    "order",
+    "assembly",
+    "solver",
+    "prec",
+)
+
+_SAFE_TOKEN_RE = re.compile(r"[^A-Za-z0-9._-]+")
+_VALID_PARAM_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -85,7 +81,7 @@ class ExperimentConfig:
     executable: str
     working_dir: str
     output_root: str
-    timeout_sec: int
+    timeout_sec: float
     openblas_threads: int
     omp_threads: int
 
@@ -93,22 +89,7 @@ class ExperimentConfig:
 @dataclass(frozen=True)
 class RunSpec:
     sweep_name: str
-    mesh_name: str
-    mesh: str
-    problem: str
-    ref_strategy: str
-    order: int
-    ref_levels: int
-    assembly: str
-    solver: str
-    prec: str
-    rtol: float
-    atol: float
-    max_iter: int
-    gmres_restart: int
-    repeats: int
-    verify: bool
-    record_residuals: bool
+    params: dict[str, Any]
     run_id: str
 
 
@@ -119,470 +100,415 @@ class BenchmarkPlan:
     runs: list[RunSpec]
     excluded_count: int
     source_path: Path
+    varying_keys: list[str]
 
 
-def _is_strict_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
-def _is_strict_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _is_finite(value: float) -> bool:
-    return value == value and value != float("inf") and value != float("-inf")
-
-
-def _require_non_empty_str(value: Any, context: str) -> str:
+def _validate_non_empty_str(value: Any, ctx: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{context} must be a non-empty string, got {value!r}")
+        raise ValueError(f"{ctx} must be a non-empty string, got {value!r}")
     return value
 
 
-def _require_int(value: Any, context: str, *, min_value: int | None = None) -> int:
-    if not _is_strict_int(value):
-        raise ValueError(
-            f"{context} must be an integer, got {type(value).__name__} ({value!r})"
-        )
-    if min_value is not None and value < min_value:
-        raise ValueError(f"{context} must be >= {min_value}, got {value}")
+def _validate_positive_int(value: Any, ctx: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{ctx} must be an integer >= 1, got {value!r}")
     return value
 
 
-def _require_float(
-    value: Any,
-    context: str,
-    *,
-    min_value: float | None = None,
-    strictly_greater: bool = False,
-) -> float:
-    if not _is_strict_number(value):
-        raise ValueError(
-            f"{context} must be a number, got {type(value).__name__} ({value!r})"
-        )
+def _validate_positive_float(value: Any, ctx: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{ctx} must be a finite positive number, got {value!r}")
     fval = float(value)
-    if not _is_finite(fval):
-        raise ValueError(f"{context} must be finite, got {value!r}")
-    if min_value is not None:
-        if strictly_greater and not (fval > min_value):
-            raise ValueError(f"{context} must be > {min_value}, got {fval}")
-        if not strictly_greater and not (fval >= min_value):
-            raise ValueError(f"{context} must be >= {min_value}, got {fval}")
+    if not math.isfinite(fval) or fval <= 0.0:
+        raise ValueError(f"{ctx} must be a finite positive number, got {value!r}")
     return fval
 
 
-def _require_bool(value: Any, context: str) -> bool:
-    if not isinstance(value, bool):
+def _validate_param_key(key: Any, ctx: str) -> str:
+    if not isinstance(key, str) or not _VALID_PARAM_KEY_RE.match(key):
         raise ValueError(
-            f"{context} must be a boolean, got {type(value).__name__} ({value!r})"
+            f"{ctx}: invalid parameter key {key!r} "
+            "(expected snake_case identifier starting with a letter)"
         )
-    return value
+    if key in RESERVED_PARAM_KEYS:
+        raise ValueError(
+            f"{ctx}: parameter key {key!r} is managed automatically by the runner "
+            "and must not be set in the TOML config"
+        )
+    return key
 
 
-def _sanitize_mesh_name(mesh_name: str) -> str:
-    sanitized = "".join(
-        ch if (ch.isascii() and (ch.isalnum() or ch in "_-")) else "_"
-        for ch in mesh_name
+def _validate_scalar(value: Any, ctx: str) -> ScalarValue:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"{ctx} must be a finite float, got {value!r}")
+        return value
+    if isinstance(value, str):
+        if not value.strip():
+            raise ValueError(f"{ctx} must be a non-empty string, got {value!r}")
+        return value
+    raise ValueError(
+        f"{ctx} must be a scalar TOML value (str, int, float, or bool), "
+        f"got {type(value).__name__}: {value!r}"
     )
-    if not sanitized:
-        raise ValueError("mesh_name cannot be empty")
-    return sanitized
 
 
-def _validate_run_param_value(
-    key: str,
-    value: Any,
-    meshes: dict[str, str],
-    context: str,
-) -> Any:
-    if key == "mesh_name":
-        alias = _require_non_empty_str(value, context)
-        if alias not in meshes:
-            available = ", ".join(sorted(meshes)) or "<none>"
-            raise ValueError(
-                f"{context} references unknown mesh alias {alias!r} "
-                f"(available: {available})"
-            )
-        return alias
-
-    if key in ALLOWED_ENUMS:
-        sval = _require_non_empty_str(value, context)
-        allowed = ALLOWED_ENUMS[key]
-        if sval not in allowed:
-            raise ValueError(
-                f"{context} has invalid value {sval!r}; allowed: {sorted(allowed)}"
-            )
-        return sval
-
-    if key == "order":
-        ival = _require_int(value, context)
-        if ival != -1 and ival < 1:
-            raise ValueError(f"{context} must be -1 or >= 1, got {ival}")
-        return ival
-
-    if key == "ref_levels":
-        return _require_int(value, context, min_value=0)
-
-    if key == "rtol":
-        return _require_float(value, context, min_value=0.0, strictly_greater=True)
-
-    if key == "atol":
-        return _require_float(value, context, min_value=0.0, strictly_greater=False)
-
-    if key in ("max_iter", "gmres_restart", "repeats"):
-        return _require_int(value, context, min_value=1)
-
-    if key in ("verify", "record_residuals"):
-        return _require_bool(value, context)
-
-    raise ValueError(f"Unknown parameter {key!r} in {context}")
-
-
-def _normalize_param_keys(
-    raw: dict[str, Any],
-    allowed_extra_keys: frozenset[str],
-    context: str,
-) -> dict[str, Any]:
-    allowed = ALLOWED_TOML_PARAM_KEYS | allowed_extra_keys
-    unknown = sorted(set(raw.keys()) - allowed)
-    if unknown:
-        raise ValueError(f"{context} contains unknown key(s): {unknown}")
-
-    if "mesh" in raw and "mesh_name" in raw:
-        raise ValueError(
-            f"{context} cannot specify both 'mesh' and 'mesh_name'; use one"
-        )
-
-    normalized: dict[str, Any] = {}
-    for key, value in raw.items():
-        target_key = "mesh_name" if key == "mesh" else key
-        normalized[target_key] = value
-    return normalized
+def _scalar_equal(lhs: Any, rhs: Any) -> bool:
+    if isinstance(lhs, bool) or isinstance(rhs, bool):
+        return type(lhs) is type(rhs) and lhs == rhs
+    return lhs == rhs
 
 
 def _parse_experiment(raw: Any) -> ExperimentConfig:
     if not isinstance(raw, dict):
-        raise ValueError("[experiment] must be a TOML table")
+        raise ValueError("[experiment] section is required and must be a table")
 
-    unknown = sorted(set(raw.keys()) - EXPERIMENT_REQUIRED_KEYS)
-    if unknown:
-        raise ValueError(f"[experiment] contains unknown key(s): {unknown}")
-
-    missing = sorted(EXPERIMENT_REQUIRED_KEYS - set(raw.keys()))
+    keys = set(raw.keys())
+    missing = sorted(REQUIRED_EXPERIMENT_KEYS - keys)
     if missing:
-        raise ValueError(f"[experiment] is missing required key(s): {missing}")
+        raise ValueError(f"[experiment] missing required keys: {', '.join(missing)}")
+    extra = sorted(keys - REQUIRED_EXPERIMENT_KEYS)
+    if extra:
+        raise ValueError(f"[experiment] contains unknown keys: {', '.join(extra)}")
 
     return ExperimentConfig(
-        name=_require_non_empty_str(raw["name"], "[experiment].name"),
-        executable=_require_non_empty_str(raw["executable"], "[experiment].executable"),
-        working_dir=_require_non_empty_str(
-            raw["working_dir"], "[experiment].working_dir"
+        name=_validate_non_empty_str(raw["name"], "experiment.name"),
+        executable=_validate_non_empty_str(raw["executable"], "experiment.executable"),
+        working_dir=_validate_non_empty_str(raw["working_dir"], "experiment.working_dir"),
+        output_root=_validate_non_empty_str(raw["output_root"], "experiment.output_root"),
+        timeout_sec=_validate_positive_float(raw["timeout_sec"], "experiment.timeout_sec"),
+        openblas_threads=_validate_positive_int(
+            raw["openblas_threads"], "experiment.openblas_threads"
         ),
-        output_root=_require_non_empty_str(
-            raw["output_root"], "[experiment].output_root"
-        ),
-        timeout_sec=_require_int(
-            raw["timeout_sec"], "[experiment].timeout_sec", min_value=1
-        ),
-        openblas_threads=_require_int(
-            raw["openblas_threads"], "[experiment].openblas_threads", min_value=1
-        ),
-        omp_threads=_require_int(
-            raw["omp_threads"], "[experiment].omp_threads", min_value=1
-        ),
+        omp_threads=_validate_positive_int(raw["omp_threads"], "experiment.omp_threads"),
     )
 
 
 def _parse_meshes(raw: Any) -> dict[str, str]:
-    if not isinstance(raw, dict):
-        raise ValueError("[meshes] must be a TOML table")
-    if not raw:
-        raise ValueError("[meshes] must define at least one mesh alias")
-
-    meshes: dict[str, str] = {}
-    for alias, path_str in raw.items():
-        clean_alias = _require_non_empty_str(alias, "[meshes] alias")
-        _sanitize_mesh_name(clean_alias)
-        clean_path = _require_non_empty_str(path_str, f"[meshes].{clean_alias}")
-        meshes[clean_alias] = clean_path
-    return meshes
-
-
-def _parse_defaults(raw: Any, meshes: dict[str, str]) -> dict[str, Any]:
     if raw is None:
         return {}
     if not isinstance(raw, dict):
-        raise ValueError("[defaults] must be a TOML table")
+        raise ValueError("[meshes] must be a table mapping alias -> mesh path")
+    meshes: dict[str, str] = {}
+    for alias, path in raw.items():
+        alias_str = _validate_non_empty_str(alias, "meshes key")
+        path_str = _validate_non_empty_str(path, f"meshes.{alias_str}")
+        meshes[alias_str] = path_str
+    return meshes
 
-    normalized = _normalize_param_keys(raw, frozenset(), "[defaults]")
-    defaults: dict[str, Any] = {}
-    for key, value in normalized.items():
-        if isinstance(value, list):
-            raise ValueError(
-                f"[defaults].{key} must be a scalar value, not a list"
-            )
-        defaults[key] = _validate_run_param_value(
-            key, value, meshes, f"[defaults].{key}"
-        )
+
+def _parse_defaults(raw: Any) -> dict[str, ScalarValue]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("[defaults] must be a table of scalar parameter values")
+    defaults: dict[str, ScalarValue] = {}
+    for key, val in raw.items():
+        valid_key = _validate_param_key(key, "defaults")
+        defaults[valid_key] = _validate_scalar(val, f"defaults.{valid_key}")
     return defaults
 
 
-def _parse_exclude_rules(
-    raw: Any,
-    meshes: dict[str, str],
-    sweep_context: str,
-) -> list[dict[str, Any]]:
+def _validate_plots(raw: Any) -> None:
+    if raw is None:
+        return
+    if not isinstance(raw, list) or not all(isinstance(item, dict) for item in raw):
+        raise ValueError("[[plots]] must be a list of tables")
+
+
+def _parse_exclude_rules(raw: Any, ctx: str) -> list[dict[str, ScalarValue]]:
     if raw is None:
         return []
     if not isinstance(raw, list):
-        raise ValueError(f"{sweep_context}.exclude must be a list of tables")
-
-    rules: list[dict[str, Any]] = []
+        raise ValueError(f"{ctx}.exclude must be a list of tables")
+    rules: list[dict[str, ScalarValue]] = []
     for idx, entry in enumerate(raw):
-        rule_ctx = f"{sweep_context}.exclude[{idx}]"
-        if not isinstance(entry, dict):
-            raise ValueError(f"{rule_ctx} must be a table/dict")
-        if not entry:
-            raise ValueError(f"{rule_ctx} must not be empty")
-
-        normalized = _normalize_param_keys(entry, frozenset(), rule_ctx)
-        validated_rule: dict[str, Any] = {}
-        for key, value in normalized.items():
-            if isinstance(value, list):
-                raise ValueError(
-                    f"{rule_ctx}.{key} must be a scalar value, not a list"
-                )
-            validated_rule[key] = _validate_run_param_value(
-                key, value, meshes, f"{rule_ctx}.{key}"
-            )
-        rules.append(validated_rule)
+        entry_ctx = f"{ctx}.exclude[{idx}]"
+        if not isinstance(entry, dict) or not entry:
+            raise ValueError(f"{entry_ctx} must be a non-empty table")
+        parsed_rule: dict[str, ScalarValue] = {}
+        for key, val in entry.items():
+            valid_key = _validate_param_key(key, entry_ctx)
+            parsed_rule[valid_key] = _validate_scalar(val, f"{entry_ctx}.{valid_key}")
+        rules.append(parsed_rule)
     return rules
 
 
-def _matches_exclude_rule(perm: dict[str, Any], rule: dict[str, Any]) -> bool:
-    return all(perm[key] == expected for key, expected in rule.items())
+def _resolve_mesh_alias(
+    params: dict[str, Any], meshes: dict[str, str], ctx: str
+) -> dict[str, Any]:
+    resolved = dict(params)
+    if "mesh" not in resolved:
+        return resolved
+
+    mesh_val = resolved["mesh"]
+    if not isinstance(mesh_val, str) or not mesh_val.strip():
+        raise ValueError(f"{ctx}.mesh must be a non-empty string, got {mesh_val!r}")
+
+    if meshes:
+        if mesh_val not in meshes:
+            available = ", ".join(sorted(meshes.keys()))
+            raise ValueError(
+                f"{ctx}.mesh alias {mesh_val!r} is not defined in [meshes] "
+                f"(available aliases: {available})"
+            )
+        resolved["mesh"] = meshes[mesh_val]
+        if "mesh_name" not in resolved:
+            resolved["mesh_name"] = mesh_val
+    return resolved
 
 
-def _build_run_spec(
-    sweep_name: str,
-    params: dict[str, Any],
-    meshes: dict[str, str],
-) -> RunSpec:
-    mesh_name = params["mesh_name"]
-    mesh_path = meshes[mesh_name]
-    full_params = {**params, "mesh": mesh_path}
-    run_id = compute_run_id(full_params)
-    return RunSpec(
-        sweep_name=sweep_name,
-        mesh_name=mesh_name,
-        mesh=mesh_path,
-        problem=params["problem"],
-        ref_strategy=params["ref_strategy"],
-        order=params["order"],
-        ref_levels=params["ref_levels"],
-        assembly=params["assembly"],
-        solver=params["solver"],
-        prec=params["prec"],
-        rtol=params["rtol"],
-        atol=params["atol"],
-        max_iter=params["max_iter"],
-        gmres_restart=params["gmres_restart"],
-        repeats=params["repeats"],
-        verify=params["verify"],
-        record_residuals=params["record_residuals"],
-        run_id=run_id,
+def _matches_exclude_rule(
+    rule: dict[str, ScalarValue],
+    raw_params: dict[str, Any],
+    resolved_params: dict[str, Any],
+) -> bool:
+    for key, target in rule.items():
+        if key == "mesh":
+            matched = (
+                ("mesh" in raw_params and _scalar_equal(raw_params["mesh"], target))
+                or (
+                    "mesh" in resolved_params
+                    and _scalar_equal(resolved_params["mesh"], target)
+                )
+                or (
+                    "mesh_name" in resolved_params
+                    and _scalar_equal(resolved_params["mesh_name"], target)
+                )
+            )
+            if not matched:
+                return False
+        elif key == "mesh_name":
+            matched = (
+                "mesh_name" in resolved_params
+                and _scalar_equal(resolved_params["mesh_name"], target)
+            ) or (
+                "mesh" in raw_params and _scalar_equal(raw_params["mesh"], target)
+            )
+            if not matched:
+                return False
+        else:
+            if key not in resolved_params or not _scalar_equal(
+                resolved_params[key], target
+            ):
+                return False
+    return True
+
+
+def _ordered_sweep_keys(keys: list[str]) -> list[str]:
+    priority = {k: i for i, k in enumerate(SWEEP_AXIS_PRIORITY)}
+    return sorted(keys, key=lambda k: (priority.get(k, len(priority)), k))
+
+
+def _sanitize_token(value: str) -> str:
+    cleaned = _SAFE_TOKEN_RE.sub("_", value.strip())
+    return cleaned.strip("_")
+
+
+def compute_run_id(params: dict[str, Any]) -> str:
+    """Return a deterministic, filesystem-safe run identifier for a parameter dict."""
+    payload = {k: v for k, v in params.items() if k != "sweep_name"}
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     )
+    hash8 = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:8]
+
+    parts: list[str] = []
+    for key in RUN_ID_PREFIX_KEYS:
+        if key not in payload:
+            continue
+        val = payload[key]
+        if key == "ref_levels":
+            raw_tok = f"r{val}"
+        elif key == "order":
+            raw_tok = f"p{val}"
+        elif isinstance(val, bool):
+            raw_tok = f"{key}_{'true' if val else 'false'}"
+        else:
+            raw_tok = str(val)
+        token = _sanitize_token(raw_tok)
+        if token:
+            parts.append(token)
+
+    if not parts:
+        return f"run__{hash8}"
+
+    prefix = "_".join(parts)
+    if len(prefix) > 120:
+        prefix = prefix[:120].rstrip("_")
+    return f"{prefix}__{hash8}"
 
 
-def compute_run_id(params: dict) -> str:
-    """Compute a deterministic, filesystem-safe run identifier from canonical parameters."""
-    missing = [key for key in RUN_ID_KEYS if key not in params]
-    if missing:
+def _distinct_key_value(value: Any) -> Any:
+    if value is _MISSING:
+        return ("missing", None)
+    if isinstance(value, bool):
+        return ("bool", value)
+    return ("val", value)
+
+
+def _compute_varying_keys(runs: list[RunSpec]) -> list[str]:
+    if len(runs) <= 1:
+        return []
+
+    all_keys: set[str] = set()
+    for run in runs:
+        all_keys.update(run.params.keys())
+
+    if "mesh_name" in all_keys:
+        all_keys.discard("mesh")
+
+    varying: list[str] = []
+    for key in all_keys:
+        distinct = {
+            _distinct_key_value(run.params.get(key, _MISSING)) for run in runs
+        }
+        if len(distinct) > 1:
+            varying.append(key)
+
+    priority = {k: i for i, k in enumerate(COMMON_KEY_ORDER)}
+    return sorted(varying, key=lambda k: (priority.get(k, len(priority)), k))
+
+
+def load_and_expand_config(config_path: str | Path) -> BenchmarkPlan:
+    """Load, structurally validate, and expand a TOML benchmark config."""
+    source_path = Path(config_path).resolve()
+    if not source_path.is_file():
+        raise FileNotFoundError(f"Benchmark config file not found: {source_path}")
+
+    with source_path.open("rb") as f:
+        raw = tomllib.load(f)
+
+    if not isinstance(raw, dict):
+        raise ValueError("TOML root document must be a table")
+
+    unknown_top = sorted(set(raw.keys()) - ALLOWED_TOP_LEVEL_KEYS)
+    if unknown_top:
         raise ValueError(
-            f"compute_run_id missing required parameter(s): {missing}"
+            f"Unknown top-level TOML section(s): {', '.join(unknown_top)} "
+            f"(allowed: {', '.join(sorted(ALLOWED_TOP_LEVEL_KEYS))})"
         )
 
-    mesh_name = _require_non_empty_str(params["mesh_name"], "params['mesh_name']")
-    mesh = _require_non_empty_str(params["mesh"], "params['mesh']")
-    problem = _require_non_empty_str(params["problem"], "params['problem']")
-    ref_strategy = _require_non_empty_str(
-        params["ref_strategy"], "params['ref_strategy']"
-    )
-    order = _require_int(params["order"], "params['order']")
-    ref_levels = _require_int(params["ref_levels"], "params['ref_levels']", min_value=0)
-    assembly = _require_non_empty_str(params["assembly"], "params['assembly']")
-    solver = _require_non_empty_str(params["solver"], "params['solver']")
-    prec = _require_non_empty_str(params["prec"], "params['prec']")
-    rtol = _require_float(params["rtol"], "params['rtol']", min_value=0.0, strictly_greater=True)
-    atol = _require_float(params["atol"], "params['atol']", min_value=0.0, strictly_greater=False)
-    max_iter = _require_int(params["max_iter"], "params['max_iter']", min_value=1)
-    gmres_restart = _require_int(
-        params["gmres_restart"], "params['gmres_restart']", min_value=1
-    )
+    experiment = _parse_experiment(raw.get("experiment"))
+    meshes = _parse_meshes(raw.get("meshes"))
+    defaults = _parse_defaults(raw.get("defaults"))
+    _validate_plots(raw.get("plots"))
 
-    canonical_dict = {
-        "mesh_name": mesh_name,
-        "mesh": mesh,
-        "problem": problem,
-        "ref_strategy": ref_strategy,
-        "order": order,
-        "ref_levels": ref_levels,
-        "assembly": assembly,
-        "solver": solver,
-        "prec": prec,
-        "rtol": rtol,
-        "atol": atol,
-        "max_iter": max_iter,
-        "gmres_restart": gmres_restart,
-    }
+    raw_sweeps = raw.get("sweeps", [])
+    raw_cases = raw.get("cases", [])
 
-    payload = json.dumps(canonical_dict, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
-    hash6 = hashlib.sha256(payload).hexdigest()[:6]
-    safe_mesh_name = _sanitize_mesh_name(mesh_name)
-    order_tag = "base" if order == -1 else str(order)
-
-    return (
-        f"{safe_mesh_name}__{ref_strategy}_r{ref_levels}_p{order_tag}"
-        f"__{assembly}__{solver}_{prec}__{hash6}"
-    )
-
-
-def load_and_expand_config(toml_path: Path) -> BenchmarkPlan:
-    """Load, strictly validate, expand, exclude, and deduplicate a benchmark TOML config."""
-    path = Path(toml_path)
-    with path.open("rb") as fh:
-        raw_config = tomllib.load(fh)
-
-    if not isinstance(raw_config, dict):
-        raise ValueError("Top-level TOML document must be a table")
-
-    unknown_top = sorted(set(raw_config.keys()) - ALLOWED_TOP_LEVEL_KEYS)
-    if unknown_top:
-        raise ValueError(f"Unknown top-level section(s): {unknown_top}")
-
-    if "experiment" not in raw_config:
-        raise ValueError("Missing required [experiment] section")
-    if "meshes" not in raw_config:
-        raise ValueError("Missing required [meshes] section")
-    if "sweeps" not in raw_config and "cases" not in raw_config:
+    if not isinstance(raw_sweeps, list) or not all(
+        isinstance(s, dict) for s in raw_sweeps
+    ):
+        raise ValueError("[[sweeps]] must be a list of tables")
+    if not isinstance(raw_cases, list) or not all(
+        isinstance(c, dict) for c in raw_cases
+    ):
+        raise ValueError("[[cases]] must be a list of tables")
+    if not raw_sweeps and not raw_cases:
         raise ValueError("Config must define at least one [[sweeps]] or [[cases]] entry")
-
-    experiment = _parse_experiment(raw_config["experiment"])
-    meshes = _parse_meshes(raw_config["meshes"])
-    defaults = _parse_defaults(raw_config.get("defaults"), meshes)
 
     runs: list[RunSpec] = []
     seen_run_ids: set[str] = set()
     excluded_count = 0
 
-    raw_sweeps = raw_config.get("sweeps", [])
-    if not isinstance(raw_sweeps, list):
-        raise ValueError("[[sweeps]] must be an array of tables")
+    # Expand [[sweeps]]
+    for sweep_idx, sweep in enumerate(raw_sweeps):
+        ctx = f"sweeps[{sweep_idx}]"
+        raw_name = sweep.get("name")
+        if raw_name is not None:
+            sweep_name = _validate_non_empty_str(raw_name, f"{ctx}.name")
+        else:
+            sweep_name = f"sweep_{sweep_idx}"
 
-    for idx, raw_sweep in enumerate(raw_sweeps):
-        sweep_ctx = f"sweeps[{idx}]"
-        if not isinstance(raw_sweep, dict):
-            raise ValueError(f"{sweep_ctx} must be a table")
+        exclude_rules = _parse_exclude_rules(sweep.get("exclude"), ctx)
 
-        normalized = _normalize_param_keys(
-            raw_sweep, frozenset({"name", "exclude"}), sweep_ctx
-        )
-        if "name" not in normalized:
-            raise ValueError(f"{sweep_ctx} is missing required 'name' field")
-        sweep_name = _require_non_empty_str(normalized["name"], f"{sweep_ctx}.name")
-        named_ctx = f"sweeps[{idx}] ({sweep_name!r})"
-
-        exclude_rules = _parse_exclude_rules(
-            normalized.get("exclude"), meshes, named_ctx
-        )
-
-        axes: dict[str, list[Any]] = {k: [v] for k, v in defaults.items()}
-        for key, raw_val in normalized.items():
+        axes: dict[str, list[ScalarValue]] = {}
+        for key, val in sweep.items():
             if key in ("name", "exclude"):
                 continue
-            if isinstance(raw_val, list):
-                if not raw_val:
-                    raise ValueError(f"{named_ctx}.{key} list must not be empty")
-                axes[key] = [
-                    _validate_run_param_value(
-                        key, elem, meshes, f"{named_ctx}.{key}[{i}]"
-                    )
-                    for i, elem in enumerate(raw_val)
+            valid_key = _validate_param_key(key, ctx)
+            if isinstance(val, list):
+                if not val:
+                    raise ValueError(f"{ctx}.{valid_key} list must not be empty")
+                axes[valid_key] = [
+                    _validate_scalar(item, f"{ctx}.{valid_key}[{i}]")
+                    for i, item in enumerate(val)
                 ]
             else:
-                axes[key] = [
-                    _validate_run_param_value(
-                        key, raw_val, meshes, f"{named_ctx}.{key}"
-                    )
-                ]
+                axes[valid_key] = [_validate_scalar(val, f"{ctx}.{valid_key}")]
 
-        missing = sorted(REQUIRED_RUN_PARAM_KEYS - set(axes.keys()))
-        if missing:
-            raise ValueError(
-                f"{named_ctx} is missing required parameter(s): {missing}"
-            )
+        ordered_keys = _ordered_sweep_keys(list(axes.keys()))
+        value_lists = [axes[k] for k in ordered_keys]
 
-        value_lists = [axes[k] for k in RUN_PARAM_ORDER]
         for combo in itertools.product(*value_lists):
-            perm = dict(zip(RUN_PARAM_ORDER, combo))
-            if any(_matches_exclude_rule(perm, rule) for rule in exclude_rules):
+            raw_params: dict[str, Any] = dict(defaults)
+            for k, v in zip(ordered_keys, combo):
+                raw_params[k] = v
+
+            resolved_params = _resolve_mesh_alias(raw_params, meshes, ctx)
+
+            if any(
+                _matches_exclude_rule(rule, raw_params, resolved_params)
+                for rule in exclude_rules
+            ):
                 excluded_count += 1
                 continue
 
-            spec = _build_run_spec(sweep_name, perm, meshes)
-            if spec.run_id in seen_run_ids:
+            run_id = compute_run_id(resolved_params)
+            if run_id in seen_run_ids:
                 continue
-            seen_run_ids.add(spec.run_id)
-            runs.append(spec)
-
-    raw_cases = raw_config.get("cases", [])
-    if not isinstance(raw_cases, list):
-        raise ValueError("[[cases]] must be an array of tables")
-
-    for idx, raw_case in enumerate(raw_cases):
-        case_ctx = f"cases[{idx}]"
-        if not isinstance(raw_case, dict):
-            raise ValueError(f"{case_ctx} must be a table")
-
-        normalized = _normalize_param_keys(
-            raw_case, frozenset({"sweep_name"}), case_ctx
-        )
-        sweep_name = _require_non_empty_str(
-            normalized.get("sweep_name", "explicit"), f"{case_ctx}.sweep_name"
-        )
-
-        merged = dict(defaults)
-        for key, raw_val in normalized.items():
-            if key == "sweep_name":
-                continue
-            if isinstance(raw_val, list):
-                raise ValueError(
-                    f"{case_ctx}.{key} must be a scalar value, not a list"
+            seen_run_ids.add(run_id)
+            runs.append(
+                RunSpec(
+                    sweep_name=sweep_name,
+                    params=resolved_params,
+                    run_id=run_id,
                 )
-            merged[key] = _validate_run_param_value(
-                key, raw_val, meshes, f"{case_ctx}.{key}"
             )
 
-        missing = sorted(REQUIRED_RUN_PARAM_KEYS - set(merged.keys()))
-        if missing:
-            raise ValueError(
-                f"{case_ctx} is missing required parameter(s): {missing}"
-            )
+    # Expand [[cases]]
+    for case_idx, case in enumerate(raw_cases):
+        ctx = f"cases[{case_idx}]"
+        raw_name = case.get("name")
+        if raw_name is not None:
+            case_name = _validate_non_empty_str(raw_name, f"{ctx}.name")
+        else:
+            case_name = f"case_{case_idx}"
 
-        spec = _build_run_spec(sweep_name, merged, meshes)
-        if spec.run_id in seen_run_ids:
+        raw_params = dict(defaults)
+        for key, val in case.items():
+            if key == "name":
+                continue
+            valid_key = _validate_param_key(key, ctx)
+            raw_params[valid_key] = _validate_scalar(val, f"{ctx}.{valid_key}")
+
+        resolved_params = _resolve_mesh_alias(raw_params, meshes, ctx)
+        run_id = compute_run_id(resolved_params)
+        if run_id in seen_run_ids:
             continue
-        seen_run_ids.add(spec.run_id)
-        runs.append(spec)
+        seen_run_ids.add(run_id)
+        runs.append(
+            RunSpec(
+                sweep_name=case_name,
+                params=resolved_params,
+                run_id=run_id,
+            )
+        )
+
+    varying_keys = _compute_varying_keys(runs)
 
     return BenchmarkPlan(
         experiment=experiment,
         meshes=meshes,
         runs=runs,
         excluded_count=excluded_count,
-        source_path=path,
+        source_path=source_path,
+        varying_keys=varying_keys,
     )
 
 
@@ -592,42 +518,36 @@ def build_cli_args(
     out_file: Path,
     quiet: bool = True,
 ) -> list[str]:
-    """Build exact mfem::OptionsParser CLI arguments for a single benchmark run."""
-    return [
-        str(executable),
-        "-m",
-        spec.mesh,
-        "-mn",
-        spec.mesh_name,
-        "-prob",
-        spec.problem,
-        "-rs",
-        spec.ref_strategy,
-        "-o",
-        str(spec.order),
-        "-r",
-        str(spec.ref_levels),
-        "-asm",
-        spec.assembly,
-        "-sol",
-        spec.solver,
-        "-prec",
-        spec.prec,
-        "-rtol",
-        repr(spec.rtol),
-        "-atol",
-        repr(spec.atol),
-        "-mi",
-        str(spec.max_iter),
-        "-kdim",
-        str(spec.gmres_restart),
-        "-rep",
-        str(spec.repeats),
-        "--verify" if spec.verify else "--no-verify",
-        "--record-residuals" if spec.record_residuals else "--no-record-residuals",
-        "-out",
-        str(out_file),
-        "-id",
-        spec.run_id,
-        "--quiet" if quiet else "--no-quiet",
-    ]
+    """Build C++ CLI arguments from an arbitrary RunSpec parameter dictionary."""
+    args: list[str] = [str(executable)]
+
+    for key, val in sorted(spec.params.items()):
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(f"Invalid CLI parameter key: {key!r}")
+        flag_stem = key.replace("_", "-")
+        flag = f"--{flag_stem}"
+
+        if isinstance(val, bool):
+            args.append(flag if val else f"--no-{flag_stem}")
+        elif isinstance(val, float):
+            if not math.isfinite(val):
+                raise ValueError(f"Non-finite float for parameter {key!r}: {val!r}")
+            args.extend([flag, repr(val)])
+        elif isinstance(val, (int, str)):
+            args.extend([flag, str(val)])
+        else:
+            raise ValueError(
+                f"Unsupported non-scalar value for parameter {key!r}: "
+                f"{type(val).__name__} ({val!r})"
+            )
+
+    args.extend(
+        [
+            "--out-file",
+            str(out_file),
+            "--run-id",
+            spec.run_id,
+            "--quiet" if quiet else "--no-quiet",
+        ]
+    )
+    return args

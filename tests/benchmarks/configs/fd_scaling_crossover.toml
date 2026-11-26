@@ -20,12 +20,13 @@ atol = 0.0
 max_iter = 10000
 gmres_restart = 50
 repeats = 3
-verify = false
+verify = true
 record_residuals = false
 
 # Sweep 1: 2D high-p sweep (exposes exponential-in-p blowup of none/jacobi/gs)
 [[sweeps]]
 name = "2d_high_p"
+assembly = ["legacy", "wq"]
 mesh = ["square_affine", "square_dist"]
 ref_strategy = ["k"]
 order = [3, 5, 6, 7]

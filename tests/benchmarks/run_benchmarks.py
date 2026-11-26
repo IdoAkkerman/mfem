@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
-"""Sequential CLI benchmark runner for MFEM NURBS Kronecker experiments.
-
-Parses a TOML sweep configuration via sibling ``config_schema.py``, validates
-the execution environment, runs the compiled ``nurbs_kronecker`` binary
-sequentially with strict threading/timing hygiene, captures failures as v1.0
-JSON stubs, and writes structured per-run results.
-"""
-
 from __future__ import annotations
 
 import argparse
-import dataclasses
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import json
 import os
@@ -22,15 +14,17 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from typing import Any
 
-# Ensure sibling config_schema.py resolves cleanly regardless of CWD.
+# Ensure sibling config_schema.py is importable regardless of current working directory.
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from config_schema import (  # noqa: E402
+    COMMON_KEY_ORDER,
     BenchmarkPlan,
     ExperimentConfig,
     RunSpec,
@@ -38,696 +32,936 @@ from config_schema import (  # noqa: E402
     load_and_expand_config,
 )
 
-SCHEMA_VERSION = "1.0"
-STDERR_TAIL_LIMIT = 2000
-ACCEPTABLE_CMAKE_BUILD_TYPES = frozenset({"Release", "RelWithDebInfo"})
-RUN_SPEC_CONFIG_FIELDS = (
-    "sweep_name",
-    "mesh_name",
-    "mesh",
-    "problem",
-    "ref_strategy",
-    "order",
-    "ref_levels",
-    "assembly",
-    "solver",
-    "prec",
-    "rtol",
-    "atol",
-    "max_iter",
-    "gmres_restart",
-    "repeats",
-    "verify",
-    "record_residuals",
-)
+
+_SAFE_DIR_RE = re.compile(r"[^A-Za-z0-9._-]+")
+_STDERR_TAIL_LIMIT = 2000
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid int value: {value!r}") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(f"must be >= 1 (got {parsed})")
+    return parsed
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run sequential MFEM NURBS Kronecker benchmarks from a TOML "
-            "sweep configuration."
+            "Execute MFEM NURBS Kronecker preconditioner benchmark sweeps "
+            "and persist per-run JSON results."
         )
     )
     parser.add_argument(
         "config",
         type=Path,
-        help="Path to the TOML benchmark sweep configuration file.",
+        help="Path to the benchmark TOML configuration file.",
+    )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=_positive_int,
+        default=1,
+        metavar="N",
+        help="Number of benchmark runs to execute concurrently (default: 1).",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help=(
-            "Validate config and pre-flight checks, print run summary and "
-            "first 5 CLI commands, then exit without creating directories or "
-            "executing runs."
-        ),
+        help="Validate config, run pre-flight checks, and print the plan without executing.",
     )
     parser.add_argument(
         "--resume",
         type=Path,
         default=None,
         metavar="DIR",
-        help=(
-            "Reuse an existing result directory; skip runs whose "
-            "runs/<run_id>.json already exists with status == 'ok'."
-        ),
+        help="Resume into an existing results directory, skipping runs with status == 'ok'.",
     )
     parser.add_argument(
         "--repo-root",
         type=Path,
         default=None,
         metavar="DIR",
-        help=(
-            "Base directory for resolving relative paths in [experiment] "
-            "(defaults to current working directory)."
-        ),
+        help="Override repository root directory (default: auto-detected from script path).",
     )
     parser.add_argument(
         "--verbose-cpp",
         action="store_true",
-        help="Pass quiet=False to build_cli_args and echo C++ stdout/stderr on failure.",
+        help="Pass --no-quiet to the C++ binary and echo its stdout/stderr.",
     )
     return parser.parse_args(argv)
 
 
-def resolve_under(base: Path, raw_path: str | Path) -> Path:
+def detect_repo_root(override: Path | None) -> Path:
+    if override is not None:
+        return override.resolve()
+    # Expected layout: <repo_root>/tests/benchmarks/run_benchmarks.py
+    candidate = _SCRIPT_DIR.parent.parent
+    if (candidate / ".git").exists() or (candidate / "CMakeLists.txt").exists():
+        return candidate
+    return Path.cwd().resolve()
+
+
+def resolve_under(base: Path, raw_path: str) -> Path:
     path = Path(raw_path)
     if path.is_absolute():
-        return path.resolve()
+        return path
     return (base / path).resolve()
 
 
-def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    tmp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+def _unlink_quiet(path: Path) -> None:
     try:
-        with tmp_path.open("w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2, sort_keys=False)
-            fh.write("\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-        tmp_path.replace(path)
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def atomic_write_json(target: Path, payload: dict[str, Any]) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = target.with_name(
+        f".{target.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    try:
+        serialized = json.dumps(payload, indent=2, sort_keys=False) + "\n"
+        with tmp_path.open("w", encoding="utf-8") as f:
+            f.write(serialized)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, target)
     except Exception:
-        if tmp_path.exists():
-            try:
-                tmp_path.unlink()
-            except OSError:
-                pass
+        _unlink_quiet(tmp_path)
         raise
 
 
-def discover_cmake_cache(executable: Path, repo_root: Path) -> Path | None:
-    candidates: list[Path] = []
-    seen: set[Path] = set()
-
-    for parent in executable.parents:
-        candidate = parent / "CMakeCache.txt"
-        if candidate not in seen:
-            seen.add(candidate)
-            candidates.append(candidate)
-
-    default_build_cache = (repo_root / "build" / "CMakeCache.txt").resolve()
-    if default_build_cache not in seen:
-        candidates.append(default_build_cache)
-
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
+def detect_cmake_build_type(executable: Path, repo_root: Path) -> str | None:
+    current = executable.resolve().parent
+    stop = repo_root.resolve()
+    for _ in range(8):
+        cache_file = current / "CMakeCache.txt"
+        if cache_file.is_file():
+            try:
+                for line in cache_file.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines():
+                    if line.startswith("CMAKE_BUILD_TYPE:"):
+                        _, _, value = line.partition("=")
+                        return value.strip() or None
+            except OSError:
+                return None
+            return None
+        if current == stop or current.parent == current:
+            break
+        current = current.parent
     return None
-
-
-def inspect_cmake_build_type(executable: Path, repo_root: Path) -> str | None:
-    cache_path = discover_cmake_cache(executable, repo_root)
-    if cache_path is None:
-        return None
-
-    pattern = re.compile(r"^CMAKE_BUILD_TYPE(?::[^=]+)?=(.*)$")
-    try:
-        with cache_path.open("r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                match = pattern.match(line.strip())
-                if match:
-                    build_type = match.group(1).strip()
-                    if build_type not in ACCEPTABLE_CMAKE_BUILD_TYPES:
-                        shown = build_type if build_type else "<unset>"
-                        print(
-                            "\n"
-                            "========================================================================\n"
-                            f"WARNING: Non-optimized CMake build detected: CMAKE_BUILD_TYPE={shown}\n"
-                            f"         Cache file: {cache_path}\n"
-                            "         Benchmark timings are unreliable unless built with\n"
-                            "         Release or RelWithDebInfo.\n"
-                            "========================================================================\n",
-                            file=sys.stderr,
-                            flush=True,
-                        )
-                    return build_type
-    except OSError:
-        return None
-    return None
-
-
-def run_preflight_checks(
-    plan: BenchmarkPlan,
-    repo_root: Path,
-) -> tuple[Path, Path, Path]:
-    exp: ExperimentConfig = plan.experiment
-    executable = resolve_under(repo_root, exp.executable)
-    working_dir = resolve_under(repo_root, exp.working_dir)
-    output_root = resolve_under(repo_root, exp.output_root)
-
-    errors: list[str] = []
-
-    if not executable.exists():
-        errors.append(f"Executable does not exist: {executable}")
-    elif not executable.is_file():
-        errors.append(f"Executable path is not a regular file: {executable}")
-    elif not os.access(executable, os.X_OK):
-        errors.append(f"Executable is not executable (missing +x): {executable}")
-
-    if not working_dir.exists():
-        errors.append(f"Working directory does not exist: {working_dir}")
-    elif not working_dir.is_dir():
-        errors.append(f"Working directory is not a directory: {working_dir}")
-
-    if working_dir.is_dir():
-        unique_meshes = sorted({spec.mesh for spec in plan.runs})
-        missing_meshes: list[str] = []
-        for mesh_rel in unique_meshes:
-            mesh_path = working_dir / mesh_rel
-            if not mesh_path.is_file():
-                missing_meshes.append(f"  - {mesh_rel} (resolved: {mesh_path})")
-        if missing_meshes:
-            errors.append(
-                "Missing mesh file(s) required by benchmark plan:\n"
-                + "\n".join(missing_meshes)
-            )
-
-    if errors:
-        print("PRE-FLIGHT CHECK FAILED:", file=sys.stderr)
-        for err in errors:
-            print(f"  * {err}", file=sys.stderr)
-        sys.exit(1)
-
-    inspect_cmake_build_type(executable, repo_root)
-    return executable, working_dir, output_root
 
 
 def detect_cpu_model() -> str:
-    cpuinfo = Path("/proc/cpuinfo")
-    if cpuinfo.is_file():
+    proc_cpuinfo = Path("/proc/cpuinfo")
+    if proc_cpuinfo.is_file():
         try:
-            with cpuinfo.open("r", encoding="utf-8", errors="replace") as fh:
-                for line in fh:
-                    if ":" not in line:
-                        continue
-                    key, val = line.split(":", 1)
-                    key_norm = key.strip().lower()
-                    if key_norm in {"model name", "hardware", "model"}:
-                        model = val.strip()
-                        if model:
-                            return model
+            for line in proc_cpuinfo.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines():
+                if line.lower().startswith("model name"):
+                    _, _, value = line.partition(":")
+                    model = value.strip()
+                    if model:
+                        return model
         except OSError:
             pass
-
-    proc = platform.processor().strip()
-    if proc:
-        return proc
-    return platform.machine() or "unknown"
+    fallback = platform.processor().strip()
+    return fallback if fallback else "unknown"
 
 
-def _run_git_cmd(repo_root: Path, git_args: list[str]) -> str | None:
+def _run_git(repo_root: Path, *args: str) -> str | None:
     try:
-        completed = subprocess.run(
-            ["git", *git_args],
+        proc = subprocess.run(
+            ["git", *args],
             cwd=repo_root,
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=5.0,
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    if completed.returncode != 0:
+    if proc.returncode != 0:
         return None
-    return completed.stdout.strip()
+    return proc.stdout.strip()
 
 
 def collect_env_metadata(
-    exp: ExperimentConfig,
+    plan: BenchmarkPlan,
     executable: Path,
     working_dir: Path,
     repo_root: Path,
+    cmake_build_type: str | None,
+    jobs: int,
 ) -> dict[str, Any]:
-    git_commit = _run_git_cmd(repo_root, ["rev-parse", "HEAD"])
-    git_branch = _run_git_cmd(repo_root, ["rev-parse", "--abbrev-ref", "HEAD"])
-    git_status = _run_git_cmd(repo_root, ["status", "--porcelain"])
-    git_dirty: bool | None = None if git_status is None else bool(git_status)
+    git_commit = _run_git(repo_root, "rev-parse", "HEAD")
+    git_branch = _run_git(repo_root, "rev-parse", "--abbrev-ref", "HEAD")
+    git_status = _run_git(repo_root, "status", "--porcelain")
+    git_dirty = bool(git_status) if git_status is not None else None
 
     return {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "experiment_name": plan.experiment.name,
+        "config_source": str(plan.source_path),
         "hostname": socket.gethostname(),
         "platform": platform.platform(),
         "python_version": platform.python_version(),
         "cpu_model": detect_cpu_model(),
         "cpu_count": os.cpu_count(),
         "git_commit": git_commit,
-        "git_dirty": git_dirty,
         "git_branch": git_branch,
-        "openblas_threads": exp.openblas_threads,
-        "omp_threads": exp.omp_threads,
+        "git_dirty": git_dirty,
+        "jobs": jobs,
+        "openblas_threads": plan.experiment.openblas_threads,
+        "omp_threads": plan.experiment.omp_threads,
         "executable": str(executable),
         "working_dir": str(working_dir),
+        "cmake_build_type": cmake_build_type,
     }
 
 
-def make_result_dir_name(experiment_name: str) -> str:
-    stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", experiment_name).strip("_")
-    if not safe_name:
-        safe_name = "benchmark"
-    return f"{stamp}_{safe_name}"
+def run_preflight_checks(
+    plan: BenchmarkPlan,
+    executable: Path,
+    working_dir: Path,
+    repo_root: Path,
+) -> tuple[list[str], str | None]:
+    errors: list[str] = []
+
+    if not executable.is_file():
+        errors.append(f"Executable not found: {executable}")
+    elif not os.access(executable, os.X_OK):
+        errors.append(f"Executable is not marked executable: {executable}")
+
+    if not working_dir.is_dir():
+        errors.append(f"Working directory does not exist: {working_dir}")
+
+    seen_meshes: set[str] = set()
+    for spec in plan.runs:
+        mesh = spec.params.get("mesh")
+        if not isinstance(mesh, str) or mesh in seen_meshes:
+            continue
+        seen_meshes.add(mesh)
+        mesh_path = Path(mesh) if Path(mesh).is_absolute() else (working_dir / mesh)
+        if not mesh_path.is_file():
+            errors.append(f"Mesh file not found: {mesh_path} (from mesh={mesh!r})")
+
+    cmake_build_type = detect_cmake_build_type(executable, repo_root)
+    if cmake_build_type is not None and cmake_build_type not in {
+        "Release",
+        "RelWithDebInfo",
+    }:
+        print(
+            f"[WARNING] CMake build type is {cmake_build_type!r} "
+            "(expected 'Release' or 'RelWithDebInfo'); timings may be distorted.",
+            file=sys.stderr,
+        )
+
+    return errors, cmake_build_type
 
 
-def spec_to_config_dict(spec: RunSpec) -> dict[str, Any]:
-    if dataclasses.is_dataclass(spec):
-        raw = dataclasses.asdict(spec)
-        raw.pop("run_id", None)
-        return raw
-    return {field: getattr(spec, field) for field in RUN_SPEC_CONFIG_FIELDS}
+def build_pinned_env(exp: ExperimentConfig) -> dict[str, str]:
+    env = os.environ.copy()
+    blas_threads = str(exp.openblas_threads)
+    omp_threads = str(exp.omp_threads)
+    env["OPENBLAS_NUM_THREADS"] = blas_threads
+    env["OMP_NUM_THREADS"] = omp_threads
+    env["MKL_NUM_THREADS"] = blas_threads
+    env["NUMEXPR_NUM_THREADS"] = blas_threads
+    return env
 
 
-def is_cached_ok(out_file: Path) -> bool:
+def _format_scalar_compact(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
+
+
+def format_run_prefix(
+    idx: int,
+    total: int,
+    spec: RunSpec,
+    varying_keys: list[str],
+) -> str:
+    """Format a compact progress prefix based on varying keys (or core fallback)."""
+    width = len(str(max(total, 1)))
+    counter = f"[{idx:>{width}}/{total}]"
+
+    if varying_keys:
+        keys = list(varying_keys)
+    else:
+        keys = [k for k in COMMON_KEY_ORDER if k in spec.params]
+        if not keys and "mesh" in spec.params:
+            keys.append("mesh")
+        if not keys:
+            keys = sorted(spec.params.keys())[:6]
+
+    key_set = set(keys)
+    segments: list[str] = []
+    consumed: set[str] = set()
+
+    # Segment 1: mesh / problem / ref_strategy
+    geo_parts: list[str] = []
+    if "mesh_name" in key_set and "mesh_name" in spec.params:
+        geo_parts.append(str(spec.params["mesh_name"]))
+        consumed.add("mesh_name")
+    elif "mesh" in key_set and "mesh" in spec.params:
+        geo_parts.append(Path(str(spec.params["mesh"])).stem)
+        consumed.add("mesh")
+    if "problem" in key_set and "problem" in spec.params:
+        geo_parts.append(str(spec.params["problem"]))
+        consumed.add("problem")
+    if "ref_strategy" in key_set and "ref_strategy" in spec.params:
+        geo_parts.append(str(spec.params["ref_strategy"]))
+        consumed.add("ref_strategy")
+    if geo_parts:
+        segments.append(" ".join(geo_parts))
+
+    # Segment 2: discretization (order + ref_levels)
+    disc_parts: list[str] = []
+    if "order" in key_set and "order" in spec.params:
+        disc_parts.append(f"p={spec.params['order']}")
+        consumed.add("order")
+    if "ref_levels" in key_set and "ref_levels" in spec.params:
+        disc_parts.append(f"r={spec.params['ref_levels']}")
+        consumed.add("ref_levels")
+    if disc_parts:
+        segments.append(" ".join(disc_parts))
+
+    # Segment 3: assembly
+    if "assembly" in key_set and "assembly" in spec.params:
+        segments.append(str(spec.params["assembly"]))
+        consumed.add("assembly")
+
+    # Segment 4: solver + prec
+    has_solver = "solver" in key_set and "solver" in spec.params
+    has_prec = "prec" in key_set and "prec" in spec.params
+    if has_solver and has_prec:
+        segments.append(f"{spec.params['solver']}+{spec.params['prec']}")
+        consumed.update({"solver", "prec"})
+    elif has_solver:
+        segments.append(str(spec.params["solver"]))
+        consumed.add("solver")
+    elif has_prec:
+        segments.append(str(spec.params["prec"]))
+        consumed.add("prec")
+
+    # Remaining arbitrary varying keys in deterministic order
+    for key in keys:
+        if key in consumed or key not in spec.params:
+            continue
+        segments.append(f"{key}={_format_scalar_compact(spec.params[key])}")
+
+    if not segments:
+        return f"{counter} {spec.run_id}"
+    return f"{counter} {' | '.join(segments)}"
+
+
+def _coerce_text(data: str | bytes | None) -> str:
+    if data is None:
+        return ""
+    if isinstance(data, bytes):
+        return data.decode("utf-8", errors="replace")
+    return data
+
+
+def _build_failure_stub(
+    spec: RunSpec,
+    status: str,
+    returncode: int | None,
+    message: str,
+    stderr_text: str,
+    wall_sec: float,
+    cmd: list[str],
+) -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "run_id": spec.run_id,
+        "status": status,
+        "config": {**spec.params, "sweep_name": spec.sweep_name},
+        "problem_stats": None,
+        "timings_sec": {
+            "wall_runner_sec": round(wall_sec, 6),
+        },
+        "convergence": None,
+        "verification": None,
+        "error": {
+            "returncode": returncode,
+            "message": message,
+            "stderr_tail": stderr_text[-_STDERR_TAIL_LIMIT:],
+            "command": cmd,
+        },
+    }
+
+
+def _is_cached_ok(out_file: Path) -> bool:
     if not out_file.is_file():
         return False
     try:
-        with out_file.open("r", encoding="utf-8") as fh:
-            data = json.load(fh)
+        data = json.loads(out_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
     return isinstance(data, dict) and data.get("status") == "ok"
 
 
-def decode_output_chunk(chunk: str | bytes | None) -> str:
-    if chunk is None:
-        return ""
-    if isinstance(chunk, bytes):
-        return chunk.decode("utf-8", errors="replace")
-    return chunk
-
-
-def build_failure_stub(
-    spec: RunSpec,
-    status: str,
-    return_code: int | None,
-    wall_time_sec: float,
-    stderr_text: str,
-) -> dict[str, Any]:
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "run_id": spec.run_id,
-        "status": status,
-        "config": spec_to_config_dict(spec),
-        "error": {
-            "return_code": return_code,
-            "wall_time_sec": round(wall_time_sec, 6),
-            "stderr_tail": stderr_text[-STDERR_TAIL_LIMIT:],
-        },
-    }
-
-
-def build_clean_env(exp: ExperimentConfig) -> dict[str, str]:
-    env = os.environ.copy()
-    env["OPENBLAS_NUM_THREADS"] = str(exp.openblas_threads)
-    env["OMP_NUM_THREADS"] = str(exp.omp_threads)
-    env["MKL_NUM_THREADS"] = str(exp.openblas_threads)
-    env["NUMEXPR_NUM_THREADS"] = str(exp.openblas_threads)
-    return env
-
-
-def format_run_prefix(index: int, total: int, spec: RunSpec) -> str:
-    width = max(1, len(str(total)))
-    return (
-        f"[{index:>{width}}/{total}] {spec.mesh_name} | "
-        f"{spec.ref_strategy} r{spec.ref_levels} p{spec.order} | "
-        f"{spec.solver} + {spec.prec}"
-    )
-
-
-def format_ok_details(data: dict[str, Any], wall_time_sec: float) -> str:
-    convergence = data.get("convergence")
-    if not isinstance(convergence, dict):
-        convergence = {}
-    timings = data.get("timings_sec")
-    if not isinstance(timings, dict):
-        timings = {}
-
-    iterations = data.get("iterations")
-    if iterations is None:
-        iterations = convergence.get("iterations")
-    converged = convergence.get("converged")
-    solve_sec = timings.get("solve")
-    total_sec = timings.get("total")
-    if not isinstance(total_sec, (int, float)):
-        total_sec = wall_time_sec
-
+def _format_ok_metrics(data: dict[str, Any], wall_sec: float) -> str:
     parts: list[str] = []
-    if iterations is not None:
-        parts.append(f"{iterations} iters")
-    if converged is False:
-        parts.append("NOT CONVERGED")
-    if isinstance(solve_sec, (int, float)):
-        parts.append(f"solve={solve_sec:.3f}s")
-    parts.append(f"total={total_sec:.3f}s")
-    return ", ".join(parts)
+    timings = data.get("timings_sec")
+    if isinstance(timings, dict):
+        total = timings.get("total_sec")
+        if isinstance(total, (int, float)):
+            parts.append(f"total={total:.3f}s")
+        else:
+            parts.append(f"wall={wall_sec:.3f}s")
+        asm = timings.get("assemble_sec")
+        if isinstance(asm, (int, float)):
+            parts.append(f"asm={asm:.3f}s")
+        solve = timings.get("solve_median_sec")
+        if not isinstance(solve, (int, float)):
+            solve = timings.get("solve_sec")
+        if isinstance(solve, (int, float)):
+            parts.append(f"solve={solve:.3f}s")
+    else:
+        parts.append(f"wall={wall_sec:.3f}s")
+
+    conv = data.get("convergence")
+    if isinstance(conv, dict):
+        iters = conv.get("iterations")
+        if isinstance(iters, int):
+            parts.append(f"iters={iters}")
+
+    return " ".join(parts)
 
 
-def display_path(path: Path) -> str:
+def _create_result_dir(output_root: Path, experiment_name: str) -> Path:
+    output_root.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = _SAFE_DIR_RE.sub("_", experiment_name.strip()).strip("_") or "exp"
+    base_name = f"{ts}_{safe_name}"
+    candidate = output_root / base_name
+    suffix = 1
+    while candidate.exists():
+        candidate = output_root / f"{base_name}_{suffix}"
+        suffix += 1
+    candidate.mkdir(parents=True, exist_ok=False)
+    (candidate / "runs").mkdir(parents=True, exist_ok=True)
+    return candidate
+
+
+def _relative_display_path(target: Path, repo_root: Path) -> str:
     try:
-        return str(path.relative_to(Path.cwd().resolve()))
+        return str(target.relative_to(Path.cwd().resolve()))
     except ValueError:
-        return str(path)
+        pass
+    try:
+        return str(target.relative_to(repo_root))
+    except ValueError:
+        return str(target)
 
 
-def echo_verbose_failure(stdout_text: str, stderr_text: str) -> None:
-    if stdout_text.strip():
-        print("  --- C++ stdout ---", file=sys.stderr)
-        print(stdout_text.rstrip(), file=sys.stderr)
-    if stderr_text.strip():
-        print("  --- C++ stderr ---", file=sys.stderr)
-        print(stderr_text.rstrip(), file=sys.stderr)
-    sys.stderr.flush()
+def _echo_verbose_output(
+    stdout_text: str,
+    stderr_text: str,
+    print_lock: threading.Lock | None,
+) -> None:
+    if not stdout_text and not stderr_text:
+        return
+    if print_lock is not None:
+        with print_lock:
+            if stdout_text:
+                print(stdout_text, end="", flush=True)
+            if stderr_text:
+                print(stderr_text, end="", file=sys.stderr, flush=True)
+    else:
+        if stdout_text:
+            print(stdout_text, end="", flush=True)
+        if stderr_text:
+            print(stderr_text, end="", file=sys.stderr, flush=True)
 
 
-def execute_single_run(
+def _terminate_active_procs(
+    active_procs: set[subprocess.Popen[str]],
+    procs_lock: threading.Lock,
+    grace_sec: float = 2.0,
+) -> None:
+    with procs_lock:
+        procs = list(active_procs)
+
+    for proc in procs:
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+
+    deadline = time.monotonic() + grace_sec
+    for proc in procs:
+        remaining = max(0.0, deadline - time.monotonic())
+        try:
+            proc.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        except OSError:
+            pass
+
+
+def _execute_single_run(
     spec: RunSpec,
     executable: Path,
     working_dir: Path,
     out_file: Path,
     env: dict[str, str],
-    timeout_sec: float | None,
+    timeout_sec: float,
     verbose_cpp: bool,
+    stop_event: threading.Event | None = None,
+    active_procs: set[subprocess.Popen[str]] | None = None,
+    procs_lock: threading.Lock | None = None,
+    print_lock: threading.Lock | None = None,
 ) -> tuple[str, str]:
-    """Run one benchmark spec sequentially and persist its JSON result.
+    """Execute one C++ benchmark run and persist its result or failure stub.
 
-    Returns ``(outcome, log_message)`` where ``outcome`` is ``"ok"`` or
-    ``"failed"``.
+    Returns (status, short_detail_string).
     """
-    # Clear any stale output from an earlier failed attempt before launching.
-    if out_file.exists():
-        try:
-            out_file.unlink()
-        except OSError:
-            pass
+    if stop_event is not None and stop_event.is_set():
+        return "cancelled", "CANCELLED"
+
+    tmp_out = out_file.with_name(
+        f".{spec.run_id}.{os.getpid()}.{threading.get_ident()}.cpp.tmp.json"
+    )
+    _unlink_quiet(tmp_out)
 
     cmd = build_cli_args(
         executable=executable,
         spec=spec,
-        out_file=out_file,
+        out_file=tmp_out,
         quiet=not verbose_cpp,
     )
 
-    timeout_arg = timeout_sec if (timeout_sec is not None and timeout_sec > 0) else None
-    t_start = time.perf_counter()
+    t0 = time.perf_counter()
+    proc: subprocess.Popen[str] | None = None
+    timed_out = False
+    stdout_text = ""
+    stderr_text = ""
 
     try:
-        completed = subprocess.run(
-            cmd,
-            cwd=working_dir,
-            env=env,
-            timeout=timeout_arg,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        wall_time = time.perf_counter() - t_start
-    except subprocess.TimeoutExpired as exc:
-        wall_time = time.perf_counter() - t_start
-        stdout_text = decode_output_chunk(exc.stdout)
-        stderr_text = decode_output_chunk(exc.stderr)
-        stub = build_failure_stub(
+        if procs_lock is not None and active_procs is not None:
+            with procs_lock:
+                if stop_event is not None and stop_event.is_set():
+                    return "cancelled", "CANCELLED"
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=working_dir,
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                active_procs.add(proc)
+        else:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=working_dir,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        try:
+            raw_out, raw_err = proc.communicate(timeout=timeout_sec)
+            stdout_text = _coerce_text(raw_out)
+            stderr_text = _coerce_text(raw_err)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            try:
+                raw_out, raw_err = proc.communicate(timeout=5.0)
+                stdout_text = _coerce_text(raw_out)
+                stderr_text = _coerce_text(raw_err)
+            except subprocess.TimeoutExpired:
+                pass
+        wall_sec = time.perf_counter() - t0
+    except KeyboardInterrupt:
+        if proc is not None:
+            try:
+                proc.kill()
+                proc.communicate(timeout=5.0)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        _unlink_quiet(tmp_out)
+        raise
+    finally:
+        if proc is not None and procs_lock is not None and active_procs is not None:
+            with procs_lock:
+                active_procs.discard(proc)
+
+    # If aborted via Ctrl+C while running, discard temp output instead of writing a failure stub.
+    if stop_event is not None and stop_event.is_set():
+        _unlink_quiet(tmp_out)
+        return "cancelled", "CANCELLED"
+
+    if verbose_cpp:
+        _echo_verbose_output(stdout_text, stderr_text, print_lock)
+
+    if timed_out:
+        _unlink_quiet(tmp_out)
+        stub = _build_failure_stub(
             spec=spec,
             status="timeout",
-            return_code=None,
-            wall_time_sec=wall_time,
+            returncode=None,
+            message=f"Process exceeded timeout of {timeout_sec:.1f}s",
             stderr_text=stderr_text,
+            wall_sec=wall_sec,
+            cmd=cmd,
         )
         atomic_write_json(out_file, stub)
-        if verbose_cpp:
-            echo_verbose_failure(stdout_text, stderr_text)
-        return "failed", f"FAIL (timeout, {wall_time:.1f}s)"
-    except OSError as exc:
-        wall_time = time.perf_counter() - t_start
-        err_msg = f"Failed to spawn executable: {exc}"
-        stub = build_failure_stub(
+        return "timeout", f"TIMEOUT ({wall_sec:.1f}s)"
+
+    # Non-zero exit code -> OOM or crash stub
+    if proc.returncode != 0:
+        _unlink_quiet(tmp_out)
+        if proc.returncode in (-9, 137):
+            status = "oom"
+            msg = f"Process killed (likely OOM, rc={proc.returncode})"
+            detail = f"OOM (rc={proc.returncode}, {wall_sec:.2f}s)"
+        else:
+            status = "crash"
+            msg = f"Process exited with non-zero return code {proc.returncode}"
+            detail = f"CRASH (rc={proc.returncode}, {wall_sec:.2f}s)"
+        stub = _build_failure_stub(
+            spec=spec,
+            status=status,
+            returncode=proc.returncode,
+            message=msg,
+            stderr_text=stderr_text,
+            wall_sec=wall_sec,
+            cmd=cmd,
+        )
+        atomic_write_json(out_file, stub)
+        return status, detail
+
+    # Exit code 0 -> verify JSON exists and parses cleanly
+    if not tmp_out.is_file():
+        stub = _build_failure_stub(
             spec=spec,
             status="crash",
-            return_code=None,
-            wall_time_sec=wall_time,
-            stderr_text=err_msg,
-        )
-        atomic_write_json(out_file, stub)
-        if verbose_cpp:
-            echo_verbose_failure("", err_msg)
-        return "failed", f"FAIL (crash, {wall_time:.1f}s)"
-
-    stdout_text = completed.stdout or ""
-    stderr_text = completed.stderr or ""
-    rc = completed.returncode
-
-    if rc in (-9, 137):
-        stub = build_failure_stub(
-            spec=spec,
-            status="oom",
-            return_code=rc,
-            wall_time_sec=wall_time,
+            returncode=0,
+            message="Process exited 0 but did not produce JSON output file",
             stderr_text=stderr_text,
+            wall_sec=wall_sec,
+            cmd=cmd,
         )
         atomic_write_json(out_file, stub)
-        if verbose_cpp:
-            echo_verbose_failure(stdout_text, stderr_text)
-        return "failed", f"FAIL (oom, {wall_time:.1f}s)"
-
-    if rc != 0:
-        stub = build_failure_stub(
-            spec=spec,
-            status="crash",
-            return_code=rc,
-            wall_time_sec=wall_time,
-            stderr_text=stderr_text,
-        )
-        atomic_write_json(out_file, stub)
-        if verbose_cpp:
-            echo_verbose_failure(stdout_text, stderr_text)
-        return "failed", f"FAIL (crash, rc={rc}, {wall_time:.1f}s)"
-
-    # Return code == 0: verify C++ wrote valid JSON.
-    if not out_file.is_file():
-        diag = (
-            f"{stderr_text}\n[runner] Expected JSON output missing: {out_file}"
-        ).strip()
-        stub = build_failure_stub(
-            spec=spec,
-            status="crash",
-            return_code=rc,
-            wall_time_sec=wall_time,
-            stderr_text=diag,
-        )
-        atomic_write_json(out_file, stub)
-        if verbose_cpp:
-            echo_verbose_failure(stdout_text, diag)
-        return "failed", f"FAIL (crash, missing json, {wall_time:.1f}s)"
+        return "crash", f"CRASH (missing JSON, {wall_sec:.2f}s)"
 
     try:
-        with out_file.open("r", encoding="utf-8") as fh:
-            data = json.load(fh)
+        raw_text = tmp_out.read_text(encoding="utf-8")
+        data = json.loads(raw_text)
         if not isinstance(data, dict):
-            raise ValueError("Top-level JSON value is not an object.")
+            raise ValueError("JSON root is not an object")
     except (OSError, json.JSONDecodeError, ValueError) as exc:
-        diag = (
-            f"{stderr_text}\n[runner] Invalid JSON in {out_file}: {exc}"
-        ).strip()
-        stub = build_failure_stub(
+        _unlink_quiet(tmp_out)
+        stub = _build_failure_stub(
             spec=spec,
             status="crash",
-            return_code=rc,
-            wall_time_sec=wall_time,
-            stderr_text=diag,
+            returncode=0,
+            message=f"Process exited 0 but produced invalid JSON: {exc}",
+            stderr_text=stderr_text,
+            wall_sec=wall_sec,
+            cmd=cmd,
         )
         atomic_write_json(out_file, stub)
-        if verbose_cpp:
-            echo_verbose_failure(stdout_text, diag)
-        return "failed", f"FAIL (crash, invalid json, {wall_time:.1f}s)"
+        return "crash", f"CRASH (invalid JSON, {wall_sec:.2f}s)"
 
-    # Ensure sweep_name is recorded under config and write back atomically.
-    config_obj = data.get("config")
-    if not isinstance(config_obj, dict):
-        config_obj = spec_to_config_dict(spec)
-        data["config"] = config_obj
-        atomic_write_json(out_file, data)
-    elif "sweep_name" not in config_obj:
-        config_obj["sweep_name"] = spec.sweep_name
-        atomic_write_json(out_file, data)
-
-    if data.get("status") not in (None, "ok"):
-        status_val = str(data.get("status"))
-        if verbose_cpp:
-            echo_verbose_failure(stdout_text, stderr_text)
-        return "failed", f"FAIL ({status_val}, {wall_time:.1f}s)"
-
-    details = format_ok_details(data, wall_time)
-    return "ok", f"OK ({details})"
-
-
-def handle_dry_run(
-    plan: BenchmarkPlan,
-    executable: Path,
-    output_root: Path,
-    resume_dir: Path | None,
-    verbose_cpp: bool,
-) -> int:
-    preview_dir = (
-        resume_dir.resolve()
-        if resume_dir is not None
-        else output_root / make_result_dir_name(plan.experiment.name)
+    # Merge TOML params with C++ resolved config (C++ wins on overlapping keys)
+    existing_cfg = data.get("config")
+    cpp_config: dict[str, Any] = (
+        existing_cfg if isinstance(existing_cfg, dict) else {}
     )
-    preview_runs_dir = preview_dir / "runs"
+    merged_config: dict[str, Any] = {
+        **spec.params,
+        **cpp_config,
+        "sweep_name": spec.sweep_name,
+    }
 
-    print(f"Dry run validated: {plan.source_path}")
-    print(f"Experiment:        {plan.experiment.name}")
-    print(f"Total runs:        {len(plan.runs)}")
-    print(f"Excluded runs:     {plan.excluded_count}")
-    print(f"Target dir:        {display_path(preview_dir)} (not created)")
-    print()
+    if "config" not in data or merged_config != existing_cfg:
+        data["config"] = merged_config
+        atomic_write_json(out_file, data)
+        _unlink_quiet(tmp_out)
+    else:
+        os.replace(tmp_out, out_file)
 
-    sample_count = min(5, len(plan.runs))
-    print(f"First {sample_count} CLI command(s):")
-    for idx, spec in enumerate(plan.runs[:sample_count], start=1):
-        out_file = (preview_runs_dir / f"{spec.run_id}.json").resolve()
-        cmd = build_cli_args(
-            executable=executable,
-            spec=spec,
-            out_file=out_file,
-            quiet=not verbose_cpp,
-        )
-        print(f"  {idx}. {shlex.join(cmd)}")
-
-    return 0
+    status_str = str(data.get("status", "ok"))
+    metrics = _format_ok_metrics(data, wall_sec)
+    return status_str, f"{status_str.upper()}  {metrics}"
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    config_path = args.config.resolve()
-    repo_root = (
-        args.repo_root.resolve()
-        if args.repo_root is not None
-        else Path.cwd().resolve()
-    )
-
-    if not config_path.is_file():
-        print(f"ERROR: Config file not found: {config_path}", file=sys.stderr)
-        return 1
+    repo_root = detect_repo_root(args.repo_root)
 
     try:
-        plan: BenchmarkPlan = load_and_expand_config(config_path)
-    except Exception as exc:
-        print(f"ERROR: Failed to load config {config_path}: {exc}", file=sys.stderr)
+        plan = load_and_expand_config(args.config)
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        print(f"[ERROR] Failed to load config: {exc}", file=sys.stderr)
         return 1
 
-    executable, working_dir, output_root = run_preflight_checks(plan, repo_root)
+    exp = plan.experiment
+    executable = resolve_under(repo_root, exp.executable)
+    working_dir = resolve_under(repo_root, exp.working_dir)
+    output_root = resolve_under(repo_root, exp.output_root)
+
+    total = len(plan.runs)
+    print(f"Experiment : {exp.name}")
+    print(f"Config     : {plan.source_path}")
+    print(
+        f"Runs       : {total} "
+        f"(excluded: {plan.excluded_count})"
+    )
+    print(
+        f"Varying    : {', '.join(plan.varying_keys) if plan.varying_keys else '(none)'}"
+    )
+    print(
+        f"Threads    : jobs={args.jobs}, OPENBLAS={exp.openblas_threads}, "
+        f"OMP={exp.omp_threads}, timeout={exp.timeout_sec:g}s"
+    )
+
+    if args.jobs > 1:
+        threads_per_job = max(exp.openblas_threads, exp.omp_threads, 1)
+        total_threads = args.jobs * threads_per_job
+        cpu_count = os.cpu_count()
+        if cpu_count is not None and total_threads > cpu_count:
+            print(
+                f"[WARNING] Running {args.jobs} parallel jobs x {threads_per_job} "
+                f"threads/job = {total_threads} threads on {cpu_count} logical CPUs; "
+                "oversubscription may severely distort timings.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"[WARNING] Running {args.jobs} jobs in parallel; shared cache and "
+                "memory bandwidth contention may introduce timing noise.",
+                file=sys.stderr,
+            )
+
+    preflight_errors, cmake_build_type = run_preflight_checks(
+        plan=plan,
+        executable=executable,
+        working_dir=working_dir,
+        repo_root=repo_root,
+    )
 
     if args.dry_run:
-        return handle_dry_run(
-            plan=plan,
-            executable=executable,
-            output_root=output_root,
-            resume_dir=args.resume,
-            verbose_cpp=args.verbose_cpp,
-        )
+        print("\n[DRY-RUN] Planned runs:")
+        sample_runs_dir = output_root / "<timestamp>_dry_run" / "runs"
+        for idx, spec in enumerate(plan.runs, start=1):
+            prefix = format_run_prefix(idx, total, spec, plan.varying_keys)
+            print(f"  {prefix}  ({spec.run_id})")
+        if plan.runs:
+            sample_spec = plan.runs[0]
+            sample_cmd = build_cli_args(
+                executable=executable,
+                spec=sample_spec,
+                out_file=sample_runs_dir / f"{sample_spec.run_id}.json",
+                quiet=not args.verbose_cpp,
+            )
+            print("\n[DRY-RUN] Sample command (run 1):")
+            print(f"  {shlex.join(sample_cmd)}")
+        if preflight_errors:
+            print("\n[PRE-FLIGHT FAILED]", file=sys.stderr)
+            for err in preflight_errors:
+                print(f"  - {err}", file=sys.stderr)
+            return 1
+        print("\n[DRY-RUN] Pre-flight checks passed.")
+        return 0
 
-    # Set up result directory layout.
+    if preflight_errors:
+        print("[PRE-FLIGHT FAILED]", file=sys.stderr)
+        for err in preflight_errors:
+            print(f"  - {err}", file=sys.stderr)
+        return 1
+
+    if total == 0:
+        print("[WARNING] Expanded benchmark plan contains 0 runs. Nothing to do.")
+        return 0
+
     if args.resume is not None:
         result_dir = args.resume.resolve()
         if not result_dir.is_dir():
             print(
-                f"ERROR: --resume directory does not exist: {result_dir}",
+                f"[ERROR] Resume directory does not exist: {result_dir}",
                 file=sys.stderr,
             )
             return 1
         runs_dir = result_dir / "runs"
         runs_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Resuming   : {result_dir}")
     else:
-        result_dir = output_root / make_result_dir_name(plan.experiment.name)
+        result_dir = _create_result_dir(output_root, exp.name)
         runs_dir = result_dir / "runs"
-        runs_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Output dir : {result_dir}")
 
     snapshot_path = result_dir / "config_snapshot.toml"
     if not snapshot_path.exists():
-        shutil.copy2(config_path, snapshot_path)
+        shutil.copy2(plan.source_path, snapshot_path)
 
-    metadata = collect_env_metadata(
-        exp=plan.experiment,
-        executable=executable,
-        working_dir=working_dir,
-        repo_root=repo_root,
-    )
-    atomic_write_json(result_dir / "env_metadata.json", metadata)
+    env_meta_path = result_dir / "env_metadata.json"
+    if not env_meta_path.exists():
+        env_metadata = collect_env_metadata(
+            plan=plan,
+            executable=executable,
+            working_dir=working_dir,
+            repo_root=repo_root,
+            cmake_build_type=cmake_build_type,
+            jobs=args.jobs,
+        )
+        atomic_write_json(env_meta_path, env_metadata)
 
-    env = build_clean_env(plan.experiment)
-    total_runs = len(plan.runs)
-    ok_count = 0
-    skipped_count = 0
-    failed_count = 0
+    env = build_pinned_env(exp)
+    counts: dict[str, int] = {
+        "ok": 0,
+        "cached": 0,
+        "timeout": 0,
+        "oom": 0,
+        "crash": 0,
+        "other": 0,
+    }
+    suite_t0 = time.perf_counter()
+    print()
 
-    print(
-        f"Starting sweep '{plan.experiment.name}': "
-        f"{total_runs} runs ({plan.excluded_count} excluded)",
-        flush=True,
-    )
-    print(f"Results directory: {display_path(result_dir)}", flush=True)
-
-    sweep_start = time.perf_counter()
-    interrupted = False
+    jobs_flag = f" -j {args.jobs}" if args.jobs > 1 else ""
 
     try:
-        for idx, spec in enumerate(plan.runs, start=1):
-            prefix = format_run_prefix(idx, total_runs, spec)
-            out_file = (runs_dir / f"{spec.run_id}.json").resolve()
+        if args.jobs == 1:
+            for idx, spec in enumerate(plan.runs, start=1):
+                prefix = format_run_prefix(idx, total, spec, plan.varying_keys)
+                out_file = runs_dir / f"{spec.run_id}.json"
 
-            if args.resume is not None and is_cached_ok(out_file):
-                skipped_count += 1
-                print(f"{prefix} -> SKIP (cached)", flush=True)
-                continue
+                if args.resume is not None and _is_cached_ok(out_file):
+                    counts["cached"] += 1
+                    print(f"{prefix} ... CACHED", flush=True)
+                    continue
 
-            outcome, message = execute_single_run(
-                spec=spec,
-                executable=executable,
-                working_dir=working_dir,
-                out_file=out_file,
-                env=env,
-                timeout_sec=plan.experiment.timeout_sec,
-                verbose_cpp=args.verbose_cpp,
-            )
-            if outcome == "ok":
-                ok_count += 1
-            else:
-                failed_count += 1
-            print(f"{prefix} -> {message}", flush=True)
+                print(f"{prefix} ... ", end="", flush=True)
+                status, detail = _execute_single_run(
+                    spec=spec,
+                    executable=executable,
+                    working_dir=working_dir,
+                    out_file=out_file,
+                    env=env,
+                    timeout_sec=exp.timeout_sec,
+                    verbose_cpp=args.verbose_cpp,
+                )
+                if status in counts:
+                    counts[status] += 1
+                else:
+                    counts["other"] += 1
+                print(detail, flush=True)
+        else:
+            pending: list[tuple[str, RunSpec, Path]] = []
+            for idx, spec in enumerate(plan.runs, start=1):
+                prefix = format_run_prefix(idx, total, spec, plan.varying_keys)
+                out_file = runs_dir / f"{spec.run_id}.json"
+                if args.resume is not None and _is_cached_ok(out_file):
+                    counts["cached"] += 1
+                    print(f"{prefix} ... CACHED", flush=True)
+                else:
+                    pending.append((prefix, spec, out_file))
+
+            if pending:
+                stop_event = threading.Event()
+                active_procs: set[subprocess.Popen[str]] = set()
+                procs_lock = threading.Lock()
+                print_lock = threading.Lock()
+                max_workers = min(args.jobs, len(pending))
+
+                executor = ThreadPoolExecutor(max_workers=max_workers)
+                try:
+                    future_to_prefix: dict[Future[tuple[str, str]], str] = {
+                        executor.submit(
+                            _execute_single_run,
+                            spec=spec,
+                            executable=executable,
+                            working_dir=working_dir,
+                            out_file=out_file,
+                            env=env,
+                            timeout_sec=exp.timeout_sec,
+                            verbose_cpp=args.verbose_cpp,
+                            stop_event=stop_event,
+                            active_procs=active_procs,
+                            procs_lock=procs_lock,
+                            print_lock=print_lock,
+                        ): prefix
+                        for prefix, spec, out_file in pending
+                    }
+
+                    for future in as_completed(future_to_prefix):
+                        prefix = future_to_prefix[future]
+                        status, detail = future.result()
+                        if status == "cancelled":
+                            continue
+                        if status in counts:
+                            counts[status] += 1
+                        else:
+                            counts["other"] += 1
+                        with print_lock:
+                            print(f"{prefix} ... {detail}", flush=True)
+                except KeyboardInterrupt:
+                    stop_event.set()
+                    _terminate_active_procs(active_procs, procs_lock)
+                    executor.shutdown(wait=True, cancel_futures=True)
+                    raise
+                else:
+                    executor.shutdown(wait=True)
+
     except KeyboardInterrupt:
-        interrupted = True
-        print("\nInterrupted by user; partial results preserved.", file=sys.stderr)
+        elapsed = time.perf_counter() - suite_t0
+        rel_dir = _relative_display_path(result_dir, repo_root)
+        print(
+            f"\n[INTERRUPTED] Stopped after {elapsed:.1f}s "
+            f"(ok={counts['ok']}, cached={counts['cached']}, "
+            f"failed={counts['timeout'] + counts['oom'] + counts['crash'] + counts['other']}).",
+            file=sys.stderr,
+        )
+        print(
+            f"Resume with: python3 tests/benchmarks/run_benchmarks.py "
+            f"{args.config}{jobs_flag} --resume {rel_dir}",
+            file=sys.stderr,
+        )
+        return 130
 
-    total_wall = time.perf_counter() - sweep_start
-    rel_result_dir = display_path(result_dir)
+    elapsed = time.perf_counter() - suite_t0
+    failed = counts["timeout"] + counts["oom"] + counts["crash"] + counts["other"]
+    rel_dir = _relative_display_path(result_dir, repo_root)
 
-    print()
     print(
-        f"Summary: ok={ok_count}, skipped={skipped_count}, failed={failed_count} "
-        f"(total={total_runs}) in {total_wall:.2f}s"
+        f"\nCompleted in {elapsed:.1f}s | "
+        f"ok={counts['ok']}, cached={counts['cached']}, "
+        f"timeout={counts['timeout']}, oom={counts['oom']}, "
+        f"crash={counts['crash']}"
+        + (f", other={counts['other']}" if counts["other"] else "")
     )
-    print(f"Analyze results with:\n  python3 tests/benchmarks/analyze_results.py {rel_result_dir}")
+    if failed > 0:
+        print(
+            f"Re-run failed cases: python3 tests/benchmarks/run_benchmarks.py "
+            f"{args.config}{jobs_flag} --resume {rel_dir}"
+        )
+    print(f"python3 tests/benchmarks/analyze_results.py {rel_dir}")
 
-    return 130 if interrupted else 0
+    return 0 if failed == 0 else 1
 
 
 if __name__ == "__main__":
