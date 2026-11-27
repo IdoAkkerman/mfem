@@ -194,8 +194,8 @@ int main(int argc, char *argv[])
    Array<int> slave_bdr;
 
    const char *lib_file = "libfun.so";
-   real_t rho_param = 1.204;
-   real_t mu_param = 1.825e-5;
+ //  real_t rho_param = 1.204;
+  // real_t mu_param = 1.825e-5;
 
    args.AddOption(&strong_bdr, "-sbc", "--strong-bdr",
                   "Boundaries where Dirichelet BCs are enforced strongly.");
@@ -219,10 +219,10 @@ int main(int argc, char *argv[])
                   " - Boundary condition\n\t"
                   " - Forcing\n\t"
                   " - Diffusion\n\t");
-   args.AddOption(&mu_param, "-mu", "--dyn-visc",
-                  "Sets the dynamic diffusion parameters, should be positive.");
-   args.AddOption(&rho_param, "-rho", "--density",
-                  "Sets the density parameters, should be positive.");
+  // args.AddOption(&mu_param, "-mu", "--dyn-visc",
+  //                "Sets the dynamic diffusion parameters, should be positive.");
+  // args.AddOption(&rho_param, "-rho", "--density",
+  //                "Sets the density parameters, should be positive.");
 
    // Time stepping params
    int ode_solver_type = 35;
@@ -659,8 +659,8 @@ int main(int argc, char *argv[])
 
 
    // Define the physical parameters
-   LibCoefficient rho(lib_file, "rho", false, rho_param);
-   LibCoefficient mu(lib_file, "mu", false, mu_param);
+  // LibCoefficient rho(lib_file, "rho", false, rho_param);
+  // LibCoefficient mu(lib_file, "mu", false, mu_param);
    LibVectorCoefficient sol_u(dim, lib_file, "sol_u");
    LibCoefficient sol_phi(lib_file, "sol_phi");
    LibVectorCoefficient force(dim, lib_file, "force");
@@ -691,21 +691,16 @@ int main(int argc, char *argv[])
    // Define weak form and evolution
    ParBlockTimeDepNonlinearForm form(spaces);
 
-   strong_marker.Print();
-   outflow_marker.Print();
-   normal_marker.Print();
 
    // using BTNL_Integrator = BlockTimeDepNonlinearFormIntegrator;
-   RBVMS::RBVMSIntegrator *interior_int = new RBVMS::RBVMSIntegrator(rho, mu,
-                                                                     force);
+   RBVMS::RBVMSIntegrator *interior_int = new RBVMS::RBVMSIntegrator(force);
 
    interior_int->SetInconsistentDC(NavSto_kdc0);
    interior_int->SetConsistentDC(NavSto_kdc1);
 
    //  BTNL_Integrator *outflow_int =new RBVMS::OutflowIntegrator(rho, mu, sol_u);
    //  BTNL_Integrator *weak_int = new RBVMS::WeakBCIntegrator(rho, mu, sol_u, sol_phi);
-   RBVMS::WeakBCIntegrator *normal_int = new RBVMS::WeakBCIntegrator(rho, zero,
-                                                                     sol_u, sol_phi);
+   RBVMS::WeakBCIntegrator *normal_int = new RBVMS::WeakBCIntegrator(sol_u, sol_phi);
    normal_int->SetWBCParams(0.0, 10000.0);
 
    form.AddTimeDepDomainIntegrator(interior_int);

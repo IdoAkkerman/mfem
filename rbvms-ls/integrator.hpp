@@ -24,19 +24,11 @@ class IncNavStoIntegrator
 private:
 
    /// Physical coefficients
-   //Coefficient &c_rho;
-   //Coefficient &c_mu;
    VectorCoefficient &c_force;
    VectorCoefficient &c_sol_u;
    Coefficient &c_sol_phi;
    Coefficient &c_suction;
    Coefficient &c_blowing;
-
-   real_t rho0 = 1.20;    // @ 20C
-   real_t rho1 = 998.2;   // @ 20C
-
-   real_t mu0 = 1.82e-5;  // @ 20C
-   real_t mu1 = 1.00e-3;  // @ 20C
 
    /// Numerical parameters
    real_t Cd = 6.0;
@@ -83,28 +75,13 @@ private:
                  DenseMatrix &grad_u,
                  DenseMatrix &Gij);
 
-   /// Compute density
-   real_t GetRho(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
-
-   /// Compute density gradient
-   real_t GetRhoGrad(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
-
-   /// Compute density
-   real_t GetMu(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
-
-
 public:
    /// Constructor
-   IncNavStoIntegrator(Coefficient &rho_,
-                       Coefficient &mu_,
-                       VectorCoefficient &force_,
+   IncNavStoIntegrator(VectorCoefficient &force_,
                        VectorCoefficient &sol_u,
                        Coefficient &sol_phi,
                        Coefficient &suction_,
                        Coefficient &blowing_);
-
-   /// Set densities of the two fluids
-   void SetDensities(real_t r0, real_t r1) { rho0 = r0; rho1 = r1; };
 
    /// Set tau parameters
    void SetTauParams(real_t Cd_, real_t Ct_) { Cd = Cd_; Ct = Ct_; };
@@ -205,24 +182,6 @@ public:
                              const Array2D<DenseMatrix *> &elmats);
 };
 
-
-/*
-// Compute density
-real_t GetRho(real_t &phi, Vector &grad_phi, DenseMatrix &Gij)
-{
-   real_t He = Heaviside::step(phi, grad_phi, Gij);
-   return rho0 + (rho1-rho0)*He;
-}
-
-// Compute density gradient
-real_t GetRhoGrad(real_t &phi, Vector &grad_phi, DenseMatrix &Gij)
-{
-   real_t de = Heaviside::dirac(phi, grad_phi, Gij);
-   return  (rho1-rho0)*de;
-}
-*/
-
-
 /** This class defines the time-dependent integrator for the
     Residual-based Variational multiscale formulation
     for incompressible Navier-Stokes flow.
@@ -233,12 +192,7 @@ class RBVMSIntegrator: public BlockTimeDepNonlinearFormIntegrator
 private:
 
    /// Physical coefficients
-   Coefficient &c_rho;
-   Coefficient &c_mu;
    VectorCoefficient &c_force;
-
-   real_t rho0 = 1.0;
-   real_t rho1 = 1000.0;
 
    /// Numerical parameters
    real_t Cd = 6.0;
@@ -277,20 +231,9 @@ private:
                  DenseMatrix &grad_u,
                  DenseMatrix &Gij);
 
-   /// Compute density
-   real_t GetRho(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
-
-   /// Compute density gradient
-   real_t GetRhoGrad(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
-
 public:
    /// Constructor
-   RBVMSIntegrator(Coefficient &rho_,
-                   Coefficient &mu_,
-                   VectorCoefficient &force_);
-
-   /// Set densities of the two fluids
-   void SetDensities(real_t r0, real_t r1) { rho0 = r0; rho1 = r1; };
+   RBVMSIntegrator(VectorCoefficient &force_);
 
    /// Set tau parameters
    void SetTauParams(real_t Cd_, real_t Ct_) { Cd = Cd_; Ct = Ct_; };
@@ -304,8 +247,6 @@ public:
    /// Set the time @a d
    void SetTime(const real_t &t) override
    {
-      c_rho.SetTime(t);
-      c_mu.SetTime(t);
       c_force.SetTime(t);
    };
 
@@ -340,12 +281,7 @@ class OutflowIntegrator: public BlockTimeDepNonlinearFormIntegrator
 private:
 
    /// Physical coefficients
-   Coefficient &c_rho;
-   Coefficient &c_mu;
    VectorCoefficient &c_sol_u;
-
-   real_t rho0 = 1.0;
-   real_t rho1 = 1000.0;
 
    /// Discretization parameters
    // real_t dt = -1.0;
@@ -383,26 +319,13 @@ private:
                  DenseMatrix &grad_u,
                  DenseMatrix &Gij);
 
-   /// Compute density
-   real_t GetRho(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
-
-   /// Compute density gradient
-   real_t GetRhoGrad(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
-
 public:
    /// Constructor
-   OutflowIntegrator(Coefficient &rho_,
-                     Coefficient &mu_,
-                     VectorCoefficient &c_sol_u);
-
-   /// Set densities of the two fluids
-   void SetDensities(real_t r0, real_t r1) { rho0 = r0; rho1 = r1; };
+   OutflowIntegrator(VectorCoefficient &c_sol_u);
 
    /// Set the time @a d
    void SetTime(const real_t &t) override
    {
-      c_rho.SetTime(t);
-      c_mu.SetTime(t);
       c_sol_u.SetTime(t);
    };
 
@@ -433,13 +356,8 @@ private:
 
 
    /// Physical coefficients
-   Coefficient &c_rho;
-   Coefficient &c_mu;
    VectorCoefficient &c_sol_u;
    Coefficient &c_sol_phi;
-
-   real_t rho0 = 1.0;
-   real_t rho1 = 1000.0;
 
    /// Numerical parameters
    real_t Cd = 6.0;
@@ -486,21 +404,10 @@ private:
                  DenseMatrix &grad_u,
                  DenseMatrix &Gij);
 
-   /// Compute density
-   real_t GetRho(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
-
-   /// Compute density gradient
-   real_t GetRhoGrad(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
-
 public:
    /// Constructor
-   WeakBCIntegrator(Coefficient &rho_,
-                    Coefficient &mu_,
-                    VectorCoefficient &sol_u,
+   WeakBCIntegrator(VectorCoefficient &sol_u,
                     Coefficient &sol_phi);
-
-   /// Set densities of the two fluids
-   void SetDensities(real_t r0, real_t r1) { rho0 = r0; rho1 = r1; };
 
    /// Set wbc parameters
    void SetWBCParams(real_t Cb_, real_t Cn_) { Cb = Cb_; Cn = Cn_; };
@@ -508,8 +415,6 @@ public:
    /// Set the time @a d
    void SetTime(const real_t &t) override
    {
-      c_rho.SetTime(t);
-      c_mu.SetTime(t);
       c_sol_u.SetTime(t);
       c_sol_phi.SetTime(t);
    };

@@ -11,10 +11,36 @@
 using namespace mfem;
 using namespace RBVMS;
 
+
+real_t rho0 = 1.20;    // @ 20C
+real_t rho1 = 998.2;   // @ 20C
+
+real_t mu0 = 1.82e-5;  // @ 20C
+real_t mu1 = 1.00e-3;  // @ 20C
+
+// Compute density
+real_t GetRho(real_t &phi, Vector &grad_phi, DenseMatrix &Gij)
+{
+   return rho0 + (rho1-rho0)*Heaviside::step(phi, grad_phi, Gij);
+}
+
+// Compute density
+real_t GetMu(real_t &phi, Vector &grad_phi, DenseMatrix &Gij)
+{
+   return mu0 + (mu1-mu0)*Heaviside::step(phi, grad_phi, Gij);
+}
+
+// Compute density gradient
+real_t GetRhoGrad(real_t &phi, Vector &grad_phi, DenseMatrix &Gij)
+{
+   return  (rho1-rho0)*Heaviside::dirac(phi, grad_phi, Gij);
+}
+
+
+
+
 // Constructor
-IncNavStoIntegrator::IncNavStoIntegrator(Coefficient &rho,
-                                         Coefficient &mu,
-                                         VectorCoefficient &force,
+IncNavStoIntegrator::IncNavStoIntegrator(VectorCoefficient &force,
                                          VectorCoefficient &sol_u,
                                          Coefficient &sol_phi,
                                          Coefficient &suction,
@@ -150,29 +176,6 @@ real_t IncNavStoIntegrator::GetKdc(Vector &res,
           kdc1*h*res.Norml2()/fmax(grad_u_.FNorm(), Heaviside::epsilon);
 }
 
-// Compute density
-real_t IncNavStoIntegrator::GetRho(real_t &phi, Vector &grad_phi_,
-                                   DenseMatrix &Gij_)
-{
-   real_t He = Heaviside::step(phi, grad_phi_, Gij_);
-   return rho0 + (rho1-rho0)*He;
-}
-
-// Compute density
-real_t IncNavStoIntegrator::GetMu(real_t &phi, Vector &grad_phi_,
-                                   DenseMatrix &Gij_)
-{
-   real_t He = Heaviside::step(phi, grad_phi_, Gij_);
-   return mu0 + (mu1-mu0)*He;
-}
-
-// Compute density gradient
-real_t IncNavStoIntegrator::GetRhoGrad(real_t &phi, Vector &grad_phi_,
-                                       DenseMatrix &Gij_)
-{
-   real_t de = Heaviside::dirac(phi, grad_phi_, Gij_);
-   return  (rho1-rho0)*de;
-}
 
 // Assemble the element energy
 void IncNavStoIntegrator::AssembleElementEnergy(
@@ -981,7 +984,7 @@ void IncNavStoIntegrator
       shg_phi.Mult(u, ushg_phi);
 
       rho = GetRho(phi, grad_phi, Gij);
-      mu = GetMu(phi, grad_phi, Gij);
+      mu = 0.0;//GetMu(phi, grad_phi, Gij);
 
       GetTauB(tau_b, tau_n, mu, u, nor, Gij);
 
@@ -1108,7 +1111,7 @@ void IncNavStoIntegrator
       shg_phi.Mult(u, ushg_phi);
 
       rho = GetRho(phi, grad_phi, Gij);
-      mu = GetMu(phi, grad_phi, Gij);
+      mu = 0.0;//GetMu(phi, grad_phi, Gij);
       GetTauB(tau_b, tau_n, mu, u, nor, Gij);
 
       // Momentum - Velocity block (w,u)
@@ -1414,28 +1417,9 @@ void IncNavStoIntegrator
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // Constructor
-RBVMSIntegrator::RBVMSIntegrator(Coefficient &rho,
-                                 Coefficient &mu,
-                                 VectorCoefficient &force)
-   : c_rho(rho), c_mu(mu), c_force(force)
+RBVMSIntegrator::RBVMSIntegrator(VectorCoefficient &force)
+   : c_force(force)
 {
    dim = force.GetVDim();
    u.SetSize(dim);
@@ -1530,7 +1514,6 @@ void RBVMSIntegrator::GetTau(real_t &tau_m, real_t &tau_c,
    tau_ls = 1.0/(tau_ls);
 }
 
-
 // Compute discontinuity capturing parameters
 real_t RBVMSIntegrator::GetKdc(Vector &res,
                                DenseMatrix &grad_u_,
@@ -1539,22 +1522,6 @@ real_t RBVMSIntegrator::GetKdc(Vector &res,
    real_t h = 1.0/sqrt(Gij_.Trace()/Gij_.Width());
    return kdc0*h*h*grad_u_.FNorm() +
           kdc1*h*res.Norml2()/fmax(grad_u_.FNorm(), Heaviside::epsilon);
-}
-
-// Compute density
-real_t RBVMSIntegrator::GetRho(real_t &phi, Vector &grad_phi_,
-                               DenseMatrix &Gij_)
-{
-   real_t He = Heaviside::step(phi, grad_phi_, Gij_);
-   return rho0 + (rho1-rho0)*He;
-}
-
-// Compute density gradient
-real_t RBVMSIntegrator::GetRhoGrad(real_t &phi, Vector &grad_phi_,
-                                   DenseMatrix &Gij_)
-{
-   real_t de = Heaviside::dirac(phi, grad_phi_, Gij_);
-   return  (rho1-rho0)*de;
 }
 
 // Assemble the element energy
@@ -1705,7 +1672,6 @@ void RBVMSIntegrator::AssembleElementVector(
       Tr.SetIntPoint(&ip);
       real_t w = ip.weight * Tr.Weight();
       MultAtB(Tr.InverseJacobian(),Tr.InverseJacobian(),Gij);
-      real_t mu = c_mu.Eval(Tr, ip);
       c_force.Eval(f, Tr, ip);
 
       // Compute shape and interpolate
@@ -1731,6 +1697,7 @@ void RBVMSIntegrator::AssembleElementVector(
       shg_phi.Mult(u, ushg_phi);
 
       real_t rho = GetRho(phi, grad_phi, Gij);
+      real_t mu = GetMu(phi, grad_phi, Gij);
 
       // Compute strong residual
       MultAtB(elf_u, shg_u, grad_u);
@@ -1912,8 +1879,6 @@ void RBVMSIntegrator::AssembleElementGrad(
       real_t w = ip.weight * Tr.Weight();
       MultAtB(Tr.InverseJacobian(),Tr.InverseJacobian(),Gij);
 
-      real_t mu = c_mu.Eval(Tr, ip);
-
       el[0]->CalcPhysShape(Tr, sh_u);
       elf_u.MultTranspose(sh_u, u);
       elf_du.MultTranspose(sh_u, dudt);
@@ -1937,6 +1902,7 @@ void RBVMSIntegrator::AssembleElementGrad(
       shg_phi.Mult(u, ushg_phi);
 
       real_t rho = GetRho(phi, grad_phi, Gij);
+      real_t mu = GetMu(phi, grad_phi, Gij);
       real_t drho = GetRhoGrad(phi, grad_phi, Gij);
 
       // Compute strong residual
@@ -2099,10 +2065,8 @@ void RBVMSIntegrator::AssembleElementGrad(
 }
 
 
-OutflowIntegrator::OutflowIntegrator(Coefficient &rho,
-                                     Coefficient &mu,
-                                     VectorCoefficient &sol_u)
-   : c_rho(rho), c_mu(mu), c_sol_u(sol_u)
+OutflowIntegrator::OutflowIntegrator(VectorCoefficient &sol_u)
+   : c_sol_u(sol_u)
 {
    dim = c_sol_u.GetVDim();
    u.SetSize(dim);
@@ -2139,22 +2103,6 @@ OutflowIntegrator::OutflowIntegrator(Coefficient &rho,
    {
       mfem_error("Only implemented for 2D and 3D");
    }
-}
-
-// Compute density
-real_t OutflowIntegrator::GetRho(real_t &phi, Vector &grad_phi_,
-                                 DenseMatrix &Gij_)
-{
-   real_t He = Heaviside::step(phi, grad_phi_, Gij_);
-   return rho0 + (rho1-rho0)*He;
-}
-
-// Compute density gradient
-real_t OutflowIntegrator::GetRhoGrad(real_t &phi, Vector &grad_phi_,
-                                     DenseMatrix &Gij_)
-{
-   real_t de = Heaviside::dirac(phi, grad_phi_, Gij_);
-   return  (rho1-rho0)*de;
 }
 
 // Assemble the outflow boundary residual vectors
@@ -2333,11 +2281,9 @@ void OutflowIntegrator
 }
 
 
-WeakBCIntegrator::WeakBCIntegrator(Coefficient &rho,
-                                   Coefficient &mu,
-                                   VectorCoefficient &sol_u,
+WeakBCIntegrator::WeakBCIntegrator(VectorCoefficient &sol_u,
                                    Coefficient &sol_phi)
-   : c_rho(rho), c_mu(mu), c_sol_u(sol_u), c_sol_phi(sol_phi)
+   : c_sol_u(sol_u), c_sol_phi(sol_phi)
 {
    dim = c_sol_u.GetVDim();
    u.SetSize(dim);
@@ -2374,22 +2320,6 @@ WeakBCIntegrator::WeakBCIntegrator(Coefficient &rho,
    {
       mfem_error("Only implemented for 2D and 3D");
    }
-}
-
-// Compute density
-real_t WeakBCIntegrator::GetRho(real_t &phi, Vector &grad_phi_,
-                                DenseMatrix &Gij_)
-{
-   real_t He = Heaviside::step(phi, grad_phi_, Gij_);
-   return rho0 + (rho1-rho0)*He;
-}
-
-// Compute density gradient
-real_t WeakBCIntegrator::GetRhoGrad(real_t &phi, Vector &grad_phi_,
-                                    DenseMatrix &Gij_)
-{
-   real_t de = Heaviside::dirac(phi, grad_phi_, Gij_);
-   return  (rho1-rho0)*de;
 }
 
 // Compute Weak Dirichlet stabilisation parameters
@@ -2462,7 +2392,6 @@ void WeakBCIntegrator
       // Access the neighboring element's integration point
       const IntegrationPoint &eip = Tr.GetElement1IntPoint();
 
-      mu = c_mu.Eval(*Tr.Elem1, eip);
       c_sol_u.Eval(up, *Tr.Elem1, eip);
       real_t phi0 = c_sol_phi.Eval(*Tr.Elem1, eip);
 
@@ -2495,7 +2424,7 @@ void WeakBCIntegrator
       shg_phi.Mult(u, ushg_phi);
 
       rho = GetRho(phi, grad_phi, Gij);
-
+      mu = GetMu(phi, grad_phi, Gij);
       GetTauB(tau_b, tau_n, mu, u, nor, Gij);
 
       // Traction
@@ -2601,7 +2530,6 @@ void WeakBCIntegrator
 
       // Access the neighboring element's integration point
       const IntegrationPoint &eip = Tr.GetElement1IntPoint();
-      mu = c_mu.Eval(*Tr.Elem1, eip);
       CalcOrtho(Tr.Jacobian(), nor);
       nor /= nor.Norml2();
 
@@ -2623,7 +2551,7 @@ void WeakBCIntegrator
       shg_phi.Mult(u, ushg_phi);
 
       rho = GetRho(phi, grad_phi, Gij);
-
+      mu = GetMu(phi, grad_phi, Gij);
       GetTauB(tau_b, tau_n, mu, u, nor, Gij);
 
       // Momentum - Velocity block (w,u)
