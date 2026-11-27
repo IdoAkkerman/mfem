@@ -2353,6 +2353,7 @@ void LibCoefficient::GetLibFunction(std::string libName,
                                     std::vector<std::string> funNames,
                                     bool required)
 {
+   bool print = ( Mpi::WorldRank() == 0);
    // Release previously loaded library
    if (libHandle)
    {
@@ -2374,17 +2375,20 @@ void LibCoefficient::GetLibFunction(std::string libName,
 #endif
    if (!libHandle)
    {
-      mfem::out<<"Library "<<libName<<" not found."<<std::endl;
+      if (print) { mfem::out<<"Library "<<libName<<" not found."<<std::endl; }
       if (required)
       {
          mfem_error("Can not obtain required function.\n");
       }
-      mfem::out <<"Functions:";
-      for (std::size_t i = 0; i < funNames.size(); i++)
+      if (print)
       {
-         mfem::out<<" "<<funNames[i];
+         mfem::out <<"Functions:";
+         for (std::size_t i = 0; i < funNames.size(); i++)
+         {
+            mfem::out<<" "<<funNames[i];
+         }
+         mfem::out<<" will be set to val = "<<val<<std::endl;
       }
-      mfem::out<<" will be set to val = "<<val<<std::endl;
       return;
    }
 
@@ -2403,18 +2407,20 @@ void LibCoefficient::GetLibFunction(std::string libName,
    // Check if function is found
    if (!TDFunction)
    {
-      mfem::out <<"Functions:";
-      for (std::size_t i = 0; i < funNames.size(); i++)
+      if (print)
       {
-         mfem::out<<" "<<funNames[i];
+         mfem::out <<"Functions:";
+         for (std::size_t i = 0; i < funNames.size(); i++)
+         {
+            mfem::out<<" "<<funNames[i];
+         }
+         mfem::out<<" can not be found in "<<libName<<std::endl;
       }
-      mfem::out<<" can not be found in "<<libName<<std::endl;
-
       if (required)
       {
          mfem_error("Can not obtain required function.\n");
       }
-      mfem::out<<"Function will be set to val = "<<val<<std::endl;
+      if (print) { mfem::out<<"Function will be set to val = "<<val<<std::endl; }
    }
 }
 
@@ -2451,6 +2457,7 @@ void LibVectorCoefficient::GetLibFunction(std::string libName,
                                           std::vector<std::string> funNames,
                                           bool required)
 {
+   bool print = ( Mpi::WorldRank() == 0);
    // Release previously loaded library
    if (libHandle)
    {
@@ -2472,17 +2479,20 @@ void LibVectorCoefficient::GetLibFunction(std::string libName,
 #endif
    if (!libHandle)
    {
-      mfem::out<<"Library "<<libName<<" not found."<<std::endl;
+      if (print) { mfem::out<<"Library "<<libName<<" not found."<<std::endl; }
       if (required)
       {
          mfem_error("Can not obtain required function.\n");
       }
-      mfem::out <<"Functions:";
-      for (std::size_t i = 0; i < funNames.size(); i++)
+      if (print)
       {
-         mfem::out<<" "<<funNames[i];
+         mfem::out <<"Functions:";
+         for (std::size_t i = 0; i < funNames.size(); i++)
+         {
+            mfem::out<<" "<<funNames[i];
+         }
+         mfem::out<<" will be set to homogenous."<<std::endl;
       }
-      mfem::out<<" will be set to homogenous."<<std::endl;
       return;
    }
 
@@ -2501,18 +2511,20 @@ void LibVectorCoefficient::GetLibFunction(std::string libName,
    // Check if function is found
    if (!TDFunction)
    {
-      mfem::out <<"Functions:";
-      for (std::size_t i = 0; i < funNames.size(); i++)
+      if (print)
       {
-         mfem::out<<" "<<funNames[i];
+         mfem::out <<"Functions:";
+         for (std::size_t i = 0; i < funNames.size(); i++)
+         {
+            mfem::out<<" "<<funNames[i];
+         }
+         mfem::out<<" can not be found in "<<libName<<std::endl;
       }
-      mfem::out<<" can not be found in "<<libName<<std::endl;
-
       if (required)
       {
          mfem_error("Can not obtain required function.\n");
       }
-      mfem::out<<"Function will be set to homogenous."<<std::endl;
+      if (print) { mfem::out<<"Function will be set to homogenous."<<std::endl; }
    }
 }
 
