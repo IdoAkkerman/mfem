@@ -24,16 +24,19 @@ class IncNavStoIntegrator
 private:
 
    /// Physical coefficients
-   Coefficient &c_rho;
-   Coefficient &c_mu;
+   //Coefficient &c_rho;
+   //Coefficient &c_mu;
    VectorCoefficient &c_force;
    VectorCoefficient &c_sol_u;
    Coefficient &c_sol_phi;
    Coefficient &c_suction;
    Coefficient &c_blowing;
 
-   real_t rho0 = 1.0;
-   real_t rho1 = 1000.0;
+   real_t rho0 = 1.20;    // @ 20C
+   real_t rho1 = 998.2;   // @ 20C
+
+   real_t mu0 = 1.82e-5;  // @ 20C
+   real_t mu1 = 1.00e-3;  // @ 20C
 
    /// Numerical parameters
    real_t Cd = 6.0;
@@ -86,6 +89,10 @@ private:
    /// Compute density gradient
    real_t GetRhoGrad(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
 
+   /// Compute density
+   real_t GetMu(real_t &phi, Vector &grad_phi, DenseMatrix &Gij);
+
+
 public:
    /// Constructor
    IncNavStoIntegrator(Coefficient &rho_,
@@ -115,7 +122,7 @@ public:
    void SetTimeAndStep(const real_t &t, const real_t &dt_)
    {
       dt = dt_;
-      c_mu.SetTime(t);
+    //  c_mu.SetTime(t);
       c_force.SetTime(t);
       c_sol_u.SetTime(t);
       c_sol_phi.SetTime(t);
